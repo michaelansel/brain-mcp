@@ -128,8 +128,11 @@ def build_server(config: BrainConfig) -> FastMCP:
             raise ToolError(f"'{path}' is a directory; give a file path")
         r = rel(root, target)
         async with write_lock:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+            except OSError as exc:
+                raise ToolError(f"cannot write '{path}': {exc}") from exc
             if not await has_changes(root, [r]):
                 return {
                     "path": r,
@@ -184,7 +187,10 @@ def build_server(config: BrainConfig) -> FastMCP:
         if r_src == r_dst:
             raise ToolError("src and dst are the same path")
         async with write_lock:
-            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise ToolError(f"cannot move to '{dst}': {exc}") from exc
             await run_git(root, "mv", "-f", "--", r_src, r_dst)
             msg = commit_message("move", f"{r_src} -> {r_dst}")
             sha = await commit_paths(root, [r_src, r_dst], msg)

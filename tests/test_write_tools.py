@@ -66,6 +66,11 @@ async def test_write_traversal_rejected(brain, client, tmp_path):
     assert not (tmp_path / "evil.md").exists()
 
 
+async def test_write_under_a_file_gives_actionable_error(brain, client):
+    with pytest.raises(ToolError, match="cannot write 'agents.md/nested.md'"):
+        await client.call_tool("write", {"path": "agents.md/nested.md", "content": "x"})
+
+
 async def test_unrelated_dirty_files_left_alone(brain, client):
     (brain / "dirty.md").write_text("uncommitted by hand\n")
     (brain / "agents.md").write_text("# hand edit, unstaged\n")
