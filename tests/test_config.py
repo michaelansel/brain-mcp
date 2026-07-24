@@ -73,6 +73,16 @@ def test_happy_path(tmp_path):
     assert cfg.port == 9001
 
 
+def test_cli_fails_loudly_without_brain_root(monkeypatch, capsys):
+    from brain_mcp import cli
+
+    monkeypatch.delenv("BRAIN_ROOT", raising=False)
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main([])
+    assert excinfo.value.code == 2
+    assert "BRAIN_ROOT" in capsys.readouterr().err
+
+
 def test_defaults(tmp_path):
     repo = make_repo(tmp_path / "brain")
     cfg = load_config({"BRAIN_ROOT": str(repo)})
