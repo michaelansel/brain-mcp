@@ -6,6 +6,7 @@ import argparse
 import os
 import sys
 
+from brain_mcp.auth import build_http_middleware
 from brain_mcp.config import ConfigError, load_config
 from brain_mcp.server import build_server
 
@@ -39,6 +40,8 @@ def main(argv: list[str] | None = None) -> None:
             transport="http",
             host=args.host or config.host,
             port=args.port or config.port,
+            middleware=build_http_middleware(config) or None,
+            uvicorn_config={"server_header": False},
         )
 
 

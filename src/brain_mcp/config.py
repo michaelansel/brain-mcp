@@ -19,6 +19,7 @@ class ConfigError(Exception):
 class BrainConfig:
     root: Path  # resolved brain root
     token: str | None = None  # static bearer token for HTTP; None disables auth
+    exedev_emails: frozenset[str] = frozenset()  # allowlist for exe.dev proxy identity
     host: str = "127.0.0.1"
     port: int = 8000
 
@@ -58,9 +59,18 @@ def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
     except ValueError as exc:
         raise ConfigError(f"BRAIN_MCP_PORT '{port_raw}' is not a number") from exc
 
+    token = env.get("BRAIN_MCP_TOKEN") or None
+    emails_raw = env.get("BRAIN_MCP_EXEDEV_EMAILS", "")
+    exedev_emails = frozenset(e.strip().casefold() for e in emails_raw.split(",") if e.strip())
+    if token and exedev_emails:
+        raise ConfigError(
+            "BRAIN_MCP_TOKEN and BRAIN_MCP_EXEDEV_EMAILS are mutually exclusive; pick one auth mode"
+        )
+
     return BrainConfig(
         root=root,
-        token=env.get("BRAIN_MCP_TOKEN") or None,
+        token=token,
+        exedev_emails=exedev_emails,
         host=env.get("BRAIN_MCP_HOST", "127.0.0.1"),
         port=port,
     )

@@ -16,7 +16,8 @@ Environment variables:
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
 | `BRAIN_ROOT` | yes | — | Path to the brain. Must exist and be the top level of a git repository; the server fails loudly at startup otherwise. |
-| `BRAIN_MCP_TOKEN` | no | (auth disabled) | Static bearer token for the HTTP transport. stdio ignores it. |
+| `BRAIN_MCP_TOKEN` | no | (auth disabled) | Static bearer token for the HTTP transport. stdio ignores it. Mutually exclusive with `BRAIN_MCP_EXEDEV_EMAILS`. |
+| `BRAIN_MCP_EXEDEV_EMAILS` | no | (off) | Comma-separated email allowlist for deployment behind a **private** exe.dev HTTPS proxy (see below). Mutually exclusive with `BRAIN_MCP_TOKEN`. |
 | `BRAIN_MCP_HOST` | no | `127.0.0.1` | HTTP bind host. |
 | `BRAIN_MCP_PORT` | no | `8000` | HTTP bind port. |
 | `BRAIN_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http`; the `--transport` flag overrides it. |
@@ -43,6 +44,39 @@ One-command demo (scratch brain, stdio server, main flow):
 
 ```sh
 scripts/demo.sh
+```
+
+### Deploying behind exe.dev
+
+On an exe.dev VM, the platform's private HTTPS proxy is the auth layer: the
+edge authenticates every request (browser login, or [signed VM
+tokens](https://exe.dev/docs/https-tokens-for-vms) for API clients like
+Claude) before it reaches the VM, then injects the caller's identity as
+`X-ExeDev-Email`. Run brain-mcp with the email allowlist instead of a token:
+
+```sh
+BRAIN_ROOT=~/brain BRAIN_MCP_EXEDEV_EMAILS=you@example.com \
+  uv run brain-mcp --transport http   # binds 127.0.0.1:8000
+ssh exe.dev share port <vm> 8000      # point the proxy at it; keep it private
+ssh exe.dev ssh-key generate-api-key --vm=<vm> --label=claude  # token for MCP clients
+```
+
+MCP clients send the exe.dev token as `Authorization: Bearer <token>` (or
+`X-Exedev-Authorization` where custom headers are possible). brain-mcp then
+enforces its own layer — exactly one `X-ExeDev-Email` header, value on the
+allowlist — so a request must pass both the edge's signature check and the
+in-app identity check, with no secret stored anywhere on the VM. It fails
+closed: if the proxy is ever flipped public, the header disappears and every
+request is denied.
+
+Before trusting it, verify once from outside that a client-supplied
+`X-ExeDev-Email` header is stripped by the proxy:
+
+```sh
+curl -i https://<vm>.exe.xyz/mcp -X POST \
+  -H "X-Exedev-Authorization: Bearer <token>" \
+  -H "X-ExeDev-Email: someone-else@example.com" \
+  -d '{}'   # must NOT be treated as someone-else@example.com
 ```
 
 ## Tools
@@ -82,7 +116,7 @@ via brain-mcp
 - **One commit per mutating call**, restricted by pathspec to the affected files. Unrelated dirty or staged files in the brain are left exactly as they were.
 - **Serialized writes.** A single async lock wraps every mutate-and-commit; concurrent writes produce distinct, non-interleaved commits.
 - **No caching.** Every call reads current state from disk, so hand edits to the brain are always visible immediately.
-- **Auth seam.** HTTP auth is a static bearer token behind one small module (`auth.py`); a FastMCP `OAuthProxy` can replace it without touching tool code.
+- **Auth seam.** All HTTP auth lives in one small module (`auth.py`) with two modes: a static bearer token, or an exe.dev identity-header allowlist for deployment behind exe.dev's private proxy. A FastMCP `OAuthProxy`/`JWTVerifier` can replace either without touching tool code. Responses never carry a server banner.
 
 ## Decisions (where the spec left room)
 
