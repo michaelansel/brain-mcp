@@ -35,3 +35,8 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    # third-party: fastmcp's jwt provider imports a deprecated authlib module
+    "ignore::DeprecationWarning:authlib",
+    "ignore:authlib.jose module is deprecated",
+]
