@@ -46,6 +46,7 @@ def read_head(path: Path, max_bytes: int = 65536) -> dict[str, Any] | None:
                 if line.strip() in ("---", "..."):
                     meta = yaml.safe_load("".join(collected))
                     return meta if isinstance(meta, dict) else None
+                collected.append(line)
             return None
     except (OSError, yaml.YAMLError):
         return None
