@@ -22,6 +22,16 @@ from brain_mcp.gitio import commit_message, commit_paths, has_changes, head_sha,
 from brain_mcp.pathsafe import confine, rel
 from brain_mcp.sections import SectionNotFound, replace_section
 
+# Injected into every enrolled session at initialization — the one channel
+# that reaches all surfaces. Policy lives in agents.md, not here.
+INSTRUCTIONS = (
+    "This is the user's shared memory ('the brain'), edited by both the user "
+    "directly and agents through these tools. Before your first write in a "
+    "session, read agents.md at the root and follow its conventions. Capture "
+    "is explicit: write only when the user asks, or when a conversation "
+    "produces a durable decision or artifact worth keeping."
+)
+
 
 class Entry(TypedDict):
     name: str
@@ -45,7 +55,7 @@ class MutationResult(TypedDict):
 
 def build_server(config: BrainConfig) -> FastMCP:
     root = config.root
-    mcp = FastMCP(name="brain-mcp", auth=build_auth(config))
+    mcp = FastMCP(name="brain-mcp", auth=build_auth(config), instructions=INSTRUCTIONS)
 
     # --- read tools ---
 

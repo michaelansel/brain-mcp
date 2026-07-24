@@ -14,6 +14,14 @@ from fastmcp.client.auth import BearerAuth
 from tests.conftest import data, git
 
 
+async def test_server_ships_instructions(client):
+    # instructions reach every enrolled session at initialize time — the one
+    # channel present on all surfaces, pointing agents at agents.md
+    instructions = client.initialize_result.instructions
+    assert instructions is not None
+    assert "agents.md" in instructions
+
+
 async def test_full_flow_in_memory(brain, client):
     """The main flow end-to-end over MCP: fork a project from an inbox note,
     write, patch, search, then inspect."""
