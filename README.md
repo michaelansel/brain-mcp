@@ -21,6 +21,8 @@ Environment variables:
 | `BRAIN_MCP_HOST` | no | `127.0.0.1` | HTTP bind host. |
 | `BRAIN_MCP_PORT` | no | `8000` | HTTP bind port. |
 | `BRAIN_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http`; the `--transport` flag overrides it. |
+| `BRAIN_MCP_GIT_REMOTE` | no | (push disabled) | Git remote name or URL to push `HEAD` to after every commit, best-effort and non-blocking. Auth (SSH keys/config) must already work for `git` on this host outside of brain-mcp. |
+| `BRAIN_MCP_GIT_PUSH` | no | `true` | Set `false` to pause pushing without unsetting `BRAIN_MCP_GIT_REMOTE`. |
 
 ## Run
 
@@ -144,6 +146,7 @@ via brain-mcp
 - **Serialized writes.** A single async lock wraps every mutate-and-commit; concurrent writes produce distinct, non-interleaved commits.
 - **No caching.** Every call reads current state from disk, so hand edits to the brain are always visible immediately.
 - **Auth seam.** All HTTP auth lives in one small module (`auth.py`) with two modes: a static bearer token, or an exe.dev identity-header allowlist for deployment behind exe.dev's private proxy. A FastMCP `OAuthProxy`/`JWTVerifier` can replace either without touching tool code. Responses never carry a server banner. For Claude.ai's OAuth-requiring connector, `gateway/` bridges the two rather than adding OAuth to this module — see "OAuth for Claude.ai's remote connector" above.
+- **Push is best-effort.** With `BRAIN_MCP_GIT_REMOTE` set, every commit kicks off a background `git push` of `HEAD` — it never blocks or fails a tool call. Pushes are serialized by their own lock (separate from the write lock), so they never race each other or land out of commit order. Failures are logged, not surfaced to the caller, and self-heal: the next mutating call always pushes current `HEAD` again, so a transient outage catches up on its own.
 
 ## Decisions (where the spec left room)
 

@@ -89,3 +89,26 @@ def test_defaults(tmp_path):
     assert cfg.token is None
     assert cfg.host == "127.0.0.1"
     assert cfg.port == 8000
+    assert cfg.git_remote is None
+    assert cfg.git_push is True
+
+
+def test_git_remote_set(tmp_path):
+    repo = make_repo(tmp_path / "brain")
+    cfg = load_config({"BRAIN_ROOT": str(repo), "BRAIN_MCP_GIT_REMOTE": "origin"})
+    assert cfg.git_remote == "origin"
+    assert cfg.git_push is True
+
+
+def test_git_push_false(tmp_path):
+    repo = make_repo(tmp_path / "brain")
+    cfg = load_config(
+        {"BRAIN_ROOT": str(repo), "BRAIN_MCP_GIT_REMOTE": "origin", "BRAIN_MCP_GIT_PUSH": "false"}
+    )
+    assert cfg.git_push is False
+
+
+def test_bad_git_push(tmp_path):
+    repo = make_repo(tmp_path / "brain")
+    with pytest.raises(ConfigError, match="BRAIN_MCP_GIT_PUSH"):
+        load_config({"BRAIN_ROOT": str(repo), "BRAIN_MCP_GIT_PUSH": "yes"})

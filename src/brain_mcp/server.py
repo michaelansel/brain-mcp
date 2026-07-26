@@ -18,7 +18,15 @@ from brain_mcp import searchio
 from brain_mcp.auth import build_auth
 from brain_mcp.config import BrainConfig
 from brain_mcp.errors import ToolError, git_guard
-from brain_mcp.gitio import commit_message, commit_paths, has_changes, head_sha, run_git, write_lock
+from brain_mcp.gitio import (
+    commit_message,
+    commit_paths,
+    configure_push,
+    has_changes,
+    head_sha,
+    run_git,
+    write_lock,
+)
 from brain_mcp.pathsafe import confine, rel
 from brain_mcp.sections import SectionNotFound, replace_section
 
@@ -55,6 +63,7 @@ class MutationResult(TypedDict):
 
 def build_server(config: BrainConfig) -> FastMCP:
     root = config.root
+    configure_push(config.git_remote if config.git_push else None)
     mcp = FastMCP(name="brain-mcp", auth=build_auth(config), instructions=INSTRUCTIONS)
 
     # --- read tools ---

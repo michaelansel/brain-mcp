@@ -1,13 +1,34 @@
 """Shared fixtures: every test gets a scratch brain — a real git repo in
 tmp_path with a couple of committed files — and an in-memory MCP client."""
 
+import asyncio
 import subprocess
 
 import pytest
 from fastmcp import Client
 
+from brain_mcp import gitio
 from brain_mcp.config import BrainConfig
 from brain_mcp.server import build_server
+
+
+@pytest.fixture(autouse=True)
+async def _reset_gitio_state():
+    """gitio's locks/push-tracking are module-level, and `write_lock` is
+    imported by name into server.py/projects.py — replacing the module
+    attribute wouldn't reach those already-bound references, so the same
+    Lock objects must be reused for the life of the process. A lock that
+    ever contends binds to that test's event loop (asyncio.Lock._loop);
+    pytest-asyncio gives each test a fresh loop, so a stale binding breaks
+    the next test that contends the same lock. Clear that binding before
+    each test instead of replacing the object, and reset push state too."""
+    gitio.write_lock._loop = None
+    gitio._push_lock._loop = None
+    gitio.configure_push(None)
+    gitio._last_pushed_sha = None
+    yield
+    if gitio._pending_pushes:
+        await asyncio.gather(*gitio._pending_pushes, return_exceptions=True)
 
 
 def git(root, *args, check=True):

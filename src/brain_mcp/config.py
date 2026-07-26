@@ -22,6 +22,8 @@ class BrainConfig:
     exedev_emails: frozenset[str] = frozenset()  # allowlist for exe.dev proxy identity
     host: str = "127.0.0.1"
     port: int = 8000
+    git_remote: str | None = None  # remote name/URL to push HEAD to after each commit
+    git_push: bool = True  # escape hatch: pause pushing without unsetting git_remote
 
 
 def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
@@ -67,10 +69,18 @@ def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
             "BRAIN_MCP_TOKEN and BRAIN_MCP_EXEDEV_EMAILS are mutually exclusive; pick one auth mode"
         )
 
+    git_remote = env.get("BRAIN_MCP_GIT_REMOTE") or None
+    push_raw = env.get("BRAIN_MCP_GIT_PUSH", "true").strip().lower()
+    if push_raw not in ("true", "false"):
+        raise ConfigError(f"BRAIN_MCP_GIT_PUSH '{push_raw}' must be 'true' or 'false'")
+    git_push = push_raw == "true"
+
     return BrainConfig(
         root=root,
         token=token,
         exedev_emails=exedev_emails,
         host=env.get("BRAIN_MCP_HOST", "127.0.0.1"),
         port=port,
+        git_remote=git_remote,
+        git_push=git_push,
     )
