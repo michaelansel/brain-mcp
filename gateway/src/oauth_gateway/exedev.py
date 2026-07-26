@@ -20,14 +20,24 @@ Confirmed live against brain-mcp.exe.xyz (see the plan's Testing section):
 - SSH key labels must be unique per account: a second mint with a label
   already in use (e.g. a fixed `--label=oauth-gateway` on every call) fails
   with `"a key named \"...\" already exists; use a different --label"` —
-  confirmed live on the second-ever connector connection. Each mint uses a
-  random per-call suffix accordingly.
+  confirmed live on the second-ever connector connection.
+
+Labels are also the only per-connection audit/revocation handle exe.dev gives
+us — each mint registers its own named key, individually removable via
+`ssh-key remove <label>` without affecting any other connection (deliberately
+kept this way rather than switching to a single shared locally-signed key,
+which only supports revoking *everything* at once — see the plan/security
+review for why). So the label is built to actually be useful in `ssh-key
+list`: which GitHub identity, which day, plus a random suffix so repeat
+connections on the same day (already happened — two accounts connected
+minutes apart) never collide.
 """
 
 from __future__ import annotations
 
 import secrets
 import shlex
+from datetime import UTC, datetime
 
 import httpx
 
@@ -39,10 +49,16 @@ class ExeDevMintError(Exception):
     """Raised when exe.dev's token-minting API fails or returns something unexpected."""
 
 
-def _build_command(vm_name: str, ttl_seconds: int) -> str:
+def _build_label(github_login: str) -> str:
+    date = datetime.now(UTC).strftime("%Y%m%d")
+    suffix = secrets.token_hex(3)
+    return f"oauth-gateway-{github_login}-{date}-{suffix}"
+
+
+def _build_command(vm_name: str, ttl_seconds: int, github_login: str) -> str:
     days = max(1, round(ttl_seconds / _SECONDS_PER_DAY))
     vm = shlex.quote(vm_name)
-    label = f"oauth-gateway-{secrets.token_hex(4)}"
+    label = _build_label(github_login)
     return f"ssh-key generate-api-key --vm={vm} --label={label} --exp={days}d"
 
 
@@ -59,8 +75,9 @@ async def mint_vm_token(
     exedev_api_token: str,
     vm_name: str,
     ttl_seconds: int,
+    github_login: str,
 ) -> str:
-    command = _build_command(vm_name, ttl_seconds)
+    command = _build_command(vm_name, ttl_seconds, github_login)
     response = await http_client.post(
         _EXEC_URL,
         headers={"Authorization": f"Bearer {exedev_api_token}"},

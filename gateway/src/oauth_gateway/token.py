@@ -64,6 +64,7 @@ async def issue_token(request: Request) -> Response:
             exedev_api_token=config.exedev_api_token,
             vm_name=config.vm_name,
             ttl_seconds=config.vm_token_ttl_seconds,
+            github_login=record["github_login"],
         )
     except ExeDevMintError:
         # Logged at the point of failure since the client only ever sees a bare

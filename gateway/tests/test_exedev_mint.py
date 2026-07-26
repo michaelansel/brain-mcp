@@ -5,30 +5,43 @@ import pytest
 
 from oauth_gateway.exedev import ExeDevMintError, _build_command, mint_vm_token
 
-# label is oauth-gateway-<8 hex chars>, randomized per call so concurrent/
-# repeated mints never collide on exe.dev's per-account-unique label constraint
-_LABEL_RE = r"oauth-gateway-[0-9a-f]{8}"
+
+# oauth-gateway-<github-login>-<YYYYMMDD>-<6 hex chars> — the label is the only
+# per-connection audit/revocation handle exe.dev gives us, so it's built to be
+# actually useful in `ssh-key list`, not just unique.
+def _label_pattern(login: str) -> str:
+    return rf"oauth-gateway-{login}-\d{{8}}-[0-9a-f]{{6}}"
 
 
 def test_build_command_uses_day_duration_not_epoch():
     # exe.dev's --exp takes a relative duration (h/d/w/m/y), not a Unix
     # timestamp — confirmed live: a raw epoch integer is rejected outright.
-    cmd = _build_command("my-vm", ttl_seconds=31536000)
-    assert re.fullmatch(rf"ssh-key generate-api-key --vm=my-vm --label={_LABEL_RE} --exp=365d", cmd)
+    cmd = _build_command("my-vm", ttl_seconds=31536000, github_login="octocat")
+    pattern = rf"ssh-key generate-api-key --vm=my-vm --label={_label_pattern('octocat')} --exp=365d"
+    assert re.fullmatch(pattern, cmd)
 
 
 def test_build_command_label_is_unique_per_call():
     # exe.dev requires unique labels per account — confirmed live: a second
     # mint with a repeated label fails with 'a key named "..." already exists'.
-    first = _build_command("my-vm", ttl_seconds=3600)
-    second = _build_command("my-vm", ttl_seconds=3600)
+    first = _build_command("my-vm", ttl_seconds=3600, github_login="octocat")
+    second = _build_command("my-vm", ttl_seconds=3600, github_login="octocat")
     assert first != second
 
 
+def test_build_command_label_includes_github_login():
+    # The whole point of the naming scheme: at a glance in `ssh-key list`,
+    # you can tell which identity a given connection belongs to.
+    cmd = _build_command("my-vm", ttl_seconds=3600, github_login="someone-else")
+    assert "oauth-gateway-someone-else-" in cmd
+
+
 def test_build_command_rounds_partial_days_and_floors_at_one():
-    assert "--exp=1d" in _build_command("my-vm", ttl_seconds=3600)
+    cmd = _build_command("my-vm", ttl_seconds=3600, github_login="octocat")
+    assert "--exp=1d" in cmd
     long_ttl = int(1.6 * 86400)
-    assert "--exp=2d" in _build_command("my-vm", ttl_seconds=long_ttl)
+    cmd = _build_command("my-vm", ttl_seconds=long_ttl, github_login="octocat")
+    assert "--exp=2d" in cmd
 
 
 async def test_mint_vm_token_sends_expected_request_and_parses_token():
@@ -46,6 +59,7 @@ async def test_mint_vm_token_sends_expected_request_and_parses_token():
         exedev_api_token="secret-minting-token",
         vm_name="my-vm",
         ttl_seconds=31536000,
+        github_login="octocat",
     )
     assert token == "exe1.minted"
     assert captured["url"] == "https://exe.dev/exec"
@@ -53,7 +67,7 @@ async def test_mint_vm_token_sends_expected_request_and_parses_token():
     # No --ctx: confirmed live that ssh-key generate-api-key doesn't accept it
     # ("flag provided but not defined: -ctx") — it's only a field of the
     # lower-level signed-token JSON schema, not this CLI helper.
-    pattern = rf"ssh-key generate-api-key --vm=my-vm --label={_LABEL_RE} --exp=365d"
+    pattern = rf"ssh-key generate-api-key --vm=my-vm --label={_label_pattern('octocat')} --exp=365d"
     assert re.fullmatch(pattern, captured["body"])
 
 
@@ -68,6 +82,7 @@ async def test_mint_vm_token_raises_on_non_200():
             exedev_api_token="secret",
             vm_name="my-vm",
             ttl_seconds=3600,
+            github_login="octocat",
         )
 
 
@@ -82,4 +97,5 @@ async def test_mint_vm_token_raises_when_no_token_in_response():
             exedev_api_token="secret",
             vm_name="my-vm",
             ttl_seconds=3600,
+            github_login="octocat",
         )
