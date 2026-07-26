@@ -154,8 +154,28 @@ exactly `https://claude.ai/api/mcp/auth_callback`; `/token` must accept
 `WWW-Authenticate`; and Anthropic's outbound calls originate from
 `160.79.104.0/21`.
 
-Not yet covered by any test, live or otherwise: an actual end-to-end
-click-through of Claude.ai's "Add custom connector" UI.
+The end-to-end click-through of Claude.ai's "Add custom connector" UI
+succeeded live on 2026-07-25, after finding and fixing two bugs that only
+showed up under the real flow:
+
+- `ssh-key generate-api-key` has no `--ctx` flag — confirmed by the CLI
+  itself (`"flag parsing error: flag provided but not defined: -ctx"`).
+  `ctx` is a field of the lower-level signed-token JSON schema (for tokens
+  you sign yourself), not something this convenience command exposes at
+  all. Every `/token` call was failing with a 502 until `--ctx` was dropped
+  entirely from `exedev.py` — it was audit-only, never load-bearing.
+- The Anthropic-IP restriction on `/register`/`/token` was checking
+  `$remote_addr`, which is always `127.0.0.1` since exe.dev's edge connects
+  to nginx locally — so it was blocking *all* traffic, Anthropic's included,
+  not just non-Anthropic callers as intended. Fixed with nginx's
+  `set_real_ip_from`/`real_ip_header` to resolve the real client from
+  `X-Forwarded-For`, which exe.dev's edge appends.
+
+Both were invisible to the test suite (neither is something a unit test
+against mocked HTTP clients would catch) and only surfaced once Claude's
+actual connector drove the full flow — worth remembering that "all tests
+pass" and "verified against the real VM in isolation" are not the same
+claim as "the real end-to-end flow works."
 
 ## Security review (2026-07-25)
 
