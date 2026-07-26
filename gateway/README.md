@@ -230,13 +230,15 @@ an email matched any character — now a literal exact-string match.
 
 Known, accepted tradeoffs (raised in review, not fixed):
 
-- **No revocation or inventory of minted tokens.** Every successful `/token`
-  call mints a fresh, untracked 1-year credential — there's no way to answer
-  "how many are outstanding" or revoke one selectively short of rotating the
-  whole setup. Combined with the no-refresh-grant design, a leaked token is a
-  year of standing access with no rotation event to catch it. Recording the
-  `fingerprint`/`expires_at` that `POST /exec` already returns would make
-  selective revocation possible cheaply, if this starts to matter.
+- **No local inventory of minted tokens, though revocation itself is fine.**
+  Every successful `/token` call registers its own uniquely-labeled exe.dev
+  key (`oauth-gateway-<github-login>-<date>-<random>` — see "Why not local
+  signing" below), so any single connection *can* be revoked individually via
+  `ssh exe.dev ssh-key remove <label>` without affecting others — `ssh-key
+  list` is the inventory. What's still missing is the gateway remembering
+  this locally (no local record of what it minted), so finding the right
+  label means reading `ssh-key list` and matching by login/date rather than
+  looking it up by, say, which Claude.ai session is misbehaving.
 - **No garbage collection or rate limiting** on `/register`/`/authorize`.
   Abandoned rows accumulate in SQLite indefinitely, and nothing throttles
   registration attempts while the port is public. Bounded by nginx's default
@@ -254,3 +256,30 @@ Known, accepted tradeoffs (raised in review, not fixed):
   `oauth_clients` grows by one row per connect/reconnect, not per browser.
   Immaterial at the reconnect frequency this design assumes (about once a
   year), but worth knowing if that assumption changes.
+
+## Why not local signing (2026-07-26)
+
+exe.dev also supports minting tokens by signing them locally with a
+registered SSH key (`/docs/https-api-local-key`) — one keypair, unlimited
+tokens, fully offline, no server round-trip, structurally immune to the
+label-collision bug above. Investigated switching to it and decided against
+it, for two reasons confirmed live/in docs rather than assumed:
+
+- **The key isn't scoped the way it sounds.** `ssh-key add --tag=TAG` reads
+  like it would restrict the key to *signing tokens for* tagged VMs, but
+  tested live: a tag-scoped key gets full interactive shell access
+  (`ssh exe.dev ssh <vm>`) to every VM carrying that tag — bounded to those
+  VMs (confirmed an untagged VM is inaccessible), but within them it's
+  equivalent to a personal login key, not a narrow signing credential. There's
+  no `--cmds`-style restriction available for `ssh-key add` the way there is
+  for `ssh-key generate-api-key`.
+- **No per-token revocation.** exe.dev's own FAQ on `/docs/https-api` says it
+  directly: *"Use separate ssh keys for sets of API keys for revocability."*
+  A locally-signed token has no server-side registration, so there's nothing
+  to revoke individually — only the signing key itself, which would kill
+  every token ever signed by it (every connection, all at once) rather than
+  just the one you meant to revoke.
+
+The current design's per-connection registered key is already individually
+revocable with no such tradeoff, so it stays — just with the improved label
+format above.
