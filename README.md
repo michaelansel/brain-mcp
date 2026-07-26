@@ -100,6 +100,14 @@ manual step required roughly once a year, when the minted token expires).
 
 ## Tools
 
+Every tool carries MCP's standard annotations (`readOnlyHint`, `destructiveHint`,
+`idempotentHint`, `openWorldHint`) — clients that group or gate tools by
+read/write (Claude.ai's connector permissions UI, for one) use these rather
+than needing hardcoded tool-name lists. `read`/`list`/`search`/`glob`/`projects`/
+`project` are read-only; `write`/`patch`/`move`/`delete`/`project_create` are
+not, and are further marked destructive except `project_create`, which only
+ever adds (it errors rather than overwriting an existing project).
+
 **Read**
 
 - `list(path="")` — one directory level. Entries: `name`, `path`, `type` (`file`|`dir`), `size` (bytes; 0 for dirs), `modified` (ISO 8601 UTC).

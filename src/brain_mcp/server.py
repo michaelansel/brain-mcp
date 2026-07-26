@@ -59,7 +59,9 @@ def build_server(config: BrainConfig) -> FastMCP:
 
     # --- read tools ---
 
-    @mcp.tool(name="list")
+    READ_ONLY = {"readOnlyHint": True, "openWorldHint": False}
+
+    @mcp.tool(name="list", annotations=READ_ONLY)
     def list_dir(path: str = "") -> list[Entry]:
         """List one directory level of the brain. Entries carry name, path,
         type (file|dir), size in bytes, and modified time (ISO 8601 UTC)."""
@@ -88,7 +90,7 @@ def build_server(config: BrainConfig) -> FastMCP:
             )
         return sorted(entries, key=lambda e: e["name"])
 
-    @mcp.tool
+    @mcp.tool(annotations=READ_ONLY)
     def read(path: str) -> str:
         """Read a file's contents."""
         target = confine(root, path)
@@ -101,7 +103,7 @@ def build_server(config: BrainConfig) -> FastMCP:
         except UnicodeDecodeError as exc:
             raise ToolError(f"'{path}' is not a UTF-8 text file") from exc
 
-    @mcp.tool
+    @mcp.tool(annotations=READ_ONLY)
     def search(query: str, path: str = "", limit: int = 50, regex: bool = False) -> list[Hit]:
         """Search the brain for a string (literal by default; regex=True to
         opt in). Hits carry path, line, and the matching line's text."""
@@ -110,7 +112,7 @@ def build_server(config: BrainConfig) -> FastMCP:
             raise ToolError(f"no such path '{path}'")
         return searchio.search(root, query, start, limit, regex)
 
-    @mcp.tool(name="glob")
+    @mcp.tool(name="glob", annotations=READ_ONLY)
     def glob_paths(pattern: str) -> list[str]:
         """Paths matching a glob pattern (e.g. 'projects/**/*.md')."""
         if not pattern:
@@ -129,7 +131,24 @@ def build_server(config: BrainConfig) -> FastMCP:
 
     # --- write tools (one commit per call) ---
 
-    @mcp.tool
+    # write/patch: same content twice is a documented no-op (see below), so
+    # they're idempotent despite overwriting existing content.
+    OVERWRITES_IDEMPOTENT = {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+    # move/delete: repeating with the same args fails the second time (the
+    # source/target no longer exists), so not idempotent.
+    OVERWRITES_NOT_IDEMPOTENT = {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    }
+
+    @mcp.tool(annotations=OVERWRITES_IDEMPOTENT)
     @git_guard
     async def write(path: str, content: str) -> MutationResult:
         """Create or overwrite a file. Parent directories are created."""
@@ -154,7 +173,7 @@ def build_server(config: BrainConfig) -> FastMCP:
             sha = await commit_paths(root, [r], msg)
         return {"path": r, "commit": sha, "message": msg.splitlines()[0]}
 
-    @mcp.tool
+    @mcp.tool(annotations=OVERWRITES_IDEMPOTENT)
     @git_guard
     async def patch(path: str, section: str, content: str) -> MutationResult:
         """Replace one markdown section: everything under the first heading
@@ -184,7 +203,7 @@ def build_server(config: BrainConfig) -> FastMCP:
             sha = await commit_paths(root, [r], msg)
         return {"path": r, "commit": sha, "message": msg.splitlines()[0]}
 
-    @mcp.tool
+    @mcp.tool(annotations=OVERWRITES_NOT_IDEMPOTENT)
     @git_guard
     async def move(src: str, dst: str) -> MutationResult:
         """Move or rename via git mv. Parent directories are created;
@@ -206,7 +225,7 @@ def build_server(config: BrainConfig) -> FastMCP:
             sha = await commit_paths(root, [r_src, r_dst], msg)
         return {"path": r_dst, "commit": sha, "message": msg.splitlines()[0]}
 
-    @mcp.tool
+    @mcp.tool(annotations=OVERWRITES_NOT_IDEMPOTENT)
     @git_guard
     async def delete(path: str) -> MutationResult:
         """Delete a file (or directory, recursively)."""

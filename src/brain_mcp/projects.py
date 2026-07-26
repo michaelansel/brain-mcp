@@ -21,11 +21,21 @@ from brain_mcp.pathsafe import confine, rel
 
 PROJECTS_DIR = "projects"
 
+READ_ONLY = {"readOnlyHint": True, "openWorldHint": False}
+# Purely additive: errors if the project already exists rather than
+# overwriting it, and a repeated call with the same name just errors again.
+ADDITIVE_ONLY = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": False,
+    "openWorldHint": False,
+}
+
 
 def register(mcp: FastMCP, config: BrainConfig) -> None:
     root = config.root
 
-    @mcp.tool
+    @mcp.tool(annotations=READ_ONLY)
     def projects() -> list[dict[str, Any]]:
         """Every project: name, status, path, repo count. Reads frontmatter
         only, so it stays fast with hundreds of projects."""
@@ -48,7 +58,7 @@ def register(mcp: FastMCP, config: BrainConfig) -> None:
             )
         return out
 
-    @mcp.tool
+    @mcp.tool(annotations=READ_ONLY)
     def project(name: str) -> dict[str, Any]:
         """One project in full: frontmatter, project.md prose, and a
         recursive file listing."""
@@ -77,7 +87,7 @@ def register(mcp: FastMCP, config: BrainConfig) -> None:
             "files": sorted(files),
         }
 
-    @mcp.tool
+    @mcp.tool(annotations=ADDITIVE_ONLY)
     @git_guard
     async def project_create(
         name: str, summary: str, from_path: str | None = None
