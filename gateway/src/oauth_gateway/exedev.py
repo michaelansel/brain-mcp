@@ -28,9 +28,10 @@ us — each mint registers its own named key, individually removable via
 kept this way rather than switching to a single shared locally-signed key,
 which only supports revoking *everything* at once — see the plan/security
 review for why). So the label is built to actually be useful in `ssh-key
-list`: which GitHub identity, which day, plus a random suffix so repeat
-connections on the same day (already happened — two accounts connected
-minutes apart) never collide.
+list`: which VM (this gateway could someday front more than one), which
+GitHub identity, which day, plus a random suffix so repeat connections on the
+same day (already happened — two accounts connected minutes apart) never
+collide.
 """
 
 from __future__ import annotations
@@ -49,16 +50,16 @@ class ExeDevMintError(Exception):
     """Raised when exe.dev's token-minting API fails or returns something unexpected."""
 
 
-def _build_label(github_login: str) -> str:
+def _build_label(vm_name: str, github_login: str) -> str:
     date = datetime.now(UTC).strftime("%Y%m%d")
     suffix = secrets.token_hex(3)
-    return f"oauth-gateway-{github_login}-{date}-{suffix}"
+    return f"oauth-gateway-{vm_name}-{github_login}-{date}-{suffix}"
 
 
 def _build_command(vm_name: str, ttl_seconds: int, github_login: str) -> str:
     days = max(1, round(ttl_seconds / _SECONDS_PER_DAY))
     vm = shlex.quote(vm_name)
-    label = _build_label(github_login)
+    label = _build_label(vm_name, github_login)
     return f"ssh-key generate-api-key --vm={vm} --label={label} --exp={days}d"
 
 

@@ -6,18 +6,19 @@ import pytest
 from oauth_gateway.exedev import ExeDevMintError, _build_command, mint_vm_token
 
 
-# oauth-gateway-<github-login>-<YYYYMMDD>-<6 hex chars> — the label is the only
-# per-connection audit/revocation handle exe.dev gives us, so it's built to be
-# actually useful in `ssh-key list`, not just unique.
-def _label_pattern(login: str) -> str:
-    return rf"oauth-gateway-{login}-\d{{8}}-[0-9a-f]{{6}}"
+# oauth-gateway-<vm>-<github-login>-<YYYYMMDD>-<6 hex chars> — the label is the
+# only per-connection audit/revocation handle exe.dev gives us, so it's built
+# to be actually useful in `ssh-key list`, not just unique.
+def _label_pattern(vm: str, login: str) -> str:
+    return rf"oauth-gateway-{vm}-{login}-\d{{8}}-[0-9a-f]{{6}}"
 
 
 def test_build_command_uses_day_duration_not_epoch():
     # exe.dev's --exp takes a relative duration (h/d/w/m/y), not a Unix
     # timestamp — confirmed live: a raw epoch integer is rejected outright.
     cmd = _build_command("my-vm", ttl_seconds=31536000, github_login="octocat")
-    pattern = rf"ssh-key generate-api-key --vm=my-vm --label={_label_pattern('octocat')} --exp=365d"
+    label = _label_pattern("my-vm", "octocat")
+    pattern = rf"ssh-key generate-api-key --vm=my-vm --label={label} --exp=365d"
     assert re.fullmatch(pattern, cmd)
 
 
@@ -29,11 +30,11 @@ def test_build_command_label_is_unique_per_call():
     assert first != second
 
 
-def test_build_command_label_includes_github_login():
+def test_build_command_label_includes_vm_and_github_login():
     # The whole point of the naming scheme: at a glance in `ssh-key list`,
-    # you can tell which identity a given connection belongs to.
-    cmd = _build_command("my-vm", ttl_seconds=3600, github_login="someone-else")
-    assert "oauth-gateway-someone-else-" in cmd
+    # you can tell which VM and which identity a given connection belongs to.
+    cmd = _build_command("other-vm", ttl_seconds=3600, github_login="someone-else")
+    assert "oauth-gateway-other-vm-someone-else-" in cmd
 
 
 def test_build_command_rounds_partial_days_and_floors_at_one():
@@ -67,7 +68,8 @@ async def test_mint_vm_token_sends_expected_request_and_parses_token():
     # No --ctx: confirmed live that ssh-key generate-api-key doesn't accept it
     # ("flag provided but not defined: -ctx") — it's only a field of the
     # lower-level signed-token JSON schema, not this CLI helper.
-    pattern = rf"ssh-key generate-api-key --vm=my-vm --label={_label_pattern('octocat')} --exp=365d"
+    label = _label_pattern("my-vm", "octocat")
+    pattern = rf"ssh-key generate-api-key --vm=my-vm --label={label} --exp=365d"
     assert re.fullmatch(pattern, captured["body"])
 
 
