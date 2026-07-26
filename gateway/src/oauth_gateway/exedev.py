@@ -17,10 +17,16 @@ Confirmed live against brain-mcp.exe.xyz (see the plan's Testing section):
   lower-level signed-token JSON schema (see exe.dev's "sign locally" docs),
   not something `ssh-key generate-api-key` exposes. Passing `--ctx=...` fails
   with `"flag parsing error: flag provided but not defined: -ctx"`.
+- SSH key labels must be unique per account: a second mint with a label
+  already in use (e.g. a fixed `--label=oauth-gateway` on every call) fails
+  with `"a key named \"...\" already exists; use a different --label"` —
+  confirmed live on the second-ever connector connection. Each mint uses a
+  random per-call suffix accordingly.
 """
 
 from __future__ import annotations
 
+import secrets
 import shlex
 
 import httpx
@@ -36,7 +42,8 @@ class ExeDevMintError(Exception):
 def _build_command(vm_name: str, ttl_seconds: int) -> str:
     days = max(1, round(ttl_seconds / _SECONDS_PER_DAY))
     vm = shlex.quote(vm_name)
-    return f"ssh-key generate-api-key --vm={vm} --label=oauth-gateway --exp={days}d"
+    label = f"oauth-gateway-{secrets.token_hex(4)}"
+    return f"ssh-key generate-api-key --vm={vm} --label={label} --exp={days}d"
 
 
 def _extract_token(payload: object) -> str:
