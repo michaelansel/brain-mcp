@@ -13,11 +13,14 @@ Confirmed live against brain-mcp.exe.xyz (see the plan's Testing section):
   `{"expires_at": "...", "fingerprint": "...", "label": "...",
   "namespace": "...", "token": "exe1...."}` — the token is always under
   `"token"`.
+- There is no `--ctx` flag on this command — `ctx` is only a field of the
+  lower-level signed-token JSON schema (see exe.dev's "sign locally" docs),
+  not something `ssh-key generate-api-key` exposes. Passing `--ctx=...` fails
+  with `"flag parsing error: flag provided but not defined: -ctx"`.
 """
 
 from __future__ import annotations
 
-import json
 import shlex
 
 import httpx
@@ -30,13 +33,10 @@ class ExeDevMintError(Exception):
     """Raised when exe.dev's token-minting API fails or returns something unexpected."""
 
 
-def _build_command(vm_name: str, ttl_seconds: int, github_login: str) -> str:
+def _build_command(vm_name: str, ttl_seconds: int) -> str:
     days = max(1, round(ttl_seconds / _SECONDS_PER_DAY))
-    ctx = json.dumps({"via": "oauth-gateway", "github_login": github_login}, separators=(",", ":"))
-    return (
-        f"ssh-key generate-api-key --vm={shlex.quote(vm_name)} "
-        f"--label=oauth-gateway --exp={days}d --ctx={shlex.quote(ctx)}"
-    )
+    vm = shlex.quote(vm_name)
+    return f"ssh-key generate-api-key --vm={vm} --label=oauth-gateway --exp={days}d"
 
 
 def _extract_token(payload: object) -> str:
@@ -52,9 +52,8 @@ async def mint_vm_token(
     exedev_api_token: str,
     vm_name: str,
     ttl_seconds: int,
-    github_login: str,
 ) -> str:
-    command = _build_command(vm_name, ttl_seconds, github_login)
+    command = _build_command(vm_name, ttl_seconds)
     response = await http_client.post(
         _EXEC_URL,
         headers={"Authorization": f"Bearer {exedev_api_token}"},

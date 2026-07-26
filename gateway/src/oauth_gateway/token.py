@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -12,6 +13,8 @@ from oauth_gateway import db, exedev
 from oauth_gateway.config import GatewayConfig
 from oauth_gateway.errors import oauth_error
 from oauth_gateway.exedev import ExeDevMintError
+
+logger = logging.getLogger(__name__)
 
 
 def _pkce_matches(code_verifier: str, code_challenge: str) -> bool:
@@ -61,11 +64,16 @@ async def issue_token(request: Request) -> Response:
             exedev_api_token=config.exedev_api_token,
             vm_name=config.vm_name,
             ttl_seconds=config.vm_token_ttl_seconds,
-            github_login=record["github_login"],
         )
     except ExeDevMintError:
+        # Logged at the point of failure since the client only ever sees a bare
+        # 502 — without this, diagnosing a minting failure means manually
+        # reproducing the exe.dev /exec call by hand.
+        gh_login = record["github_login"]
+        logger.exception("failed to mint an exe.dev token for github_login=%s", gh_login)
         return oauth_error(502, "server_error", "could not mint an access token")
 
+    logger.info("issued an exe.dev VM token for github_login=%s", record["github_login"])
     return JSONResponse(
         {
             "access_token": access_token,
