@@ -79,6 +79,25 @@ curl -i https://<vm>.exe.xyz/mcp -X POST \
   -d '{}'   # must NOT be treated as someone-else@example.com
 ```
 
+### OAuth for Claude.ai's remote connector
+
+Claude Code (above) works with a manually-configured bearer token. Claude.ai's
+web/mobile **Connectors** UI only knows how to add a remote MCP server via
+OAuth 2.1 + PKCE + dynamic client registration — it has no field for a manual
+token. `gateway/` is a small, separate service that speaks that OAuth flow on
+brain-mcp's behalf: it delegates login to GitHub, and instead of issuing its
+own signed tokens, calls exe.dev's own API to mint a real exe.dev VM-scoped
+bearer token, which becomes the OAuth access token. brain-mcp itself has
+**zero code or config changes** for this — it keeps trusting `X-ExeDev-Email`
+exactly as described above, on the port it always has.
+
+The only operational change is that brain-mcp now binds
+`127.0.0.1:4001` behind a small nginx instance instead of being the thing
+`share port` points at directly — nginx is the only thing exe.dev's edge talks
+to, and it only forwards `/mcp` once exe.dev has already verified the caller.
+See `gateway/README.md` for setup and the ops runbook (including the one
+manual step required roughly once a year, when the minted token expires).
+
 ## Tools
 
 **Read**
@@ -116,7 +135,7 @@ via brain-mcp
 - **One commit per mutating call**, restricted by pathspec to the affected files. Unrelated dirty or staged files in the brain are left exactly as they were.
 - **Serialized writes.** A single async lock wraps every mutate-and-commit; concurrent writes produce distinct, non-interleaved commits.
 - **No caching.** Every call reads current state from disk, so hand edits to the brain are always visible immediately.
-- **Auth seam.** All HTTP auth lives in one small module (`auth.py`) with two modes: a static bearer token, or an exe.dev identity-header allowlist for deployment behind exe.dev's private proxy. A FastMCP `OAuthProxy`/`JWTVerifier` can replace either without touching tool code. Responses never carry a server banner.
+- **Auth seam.** All HTTP auth lives in one small module (`auth.py`) with two modes: a static bearer token, or an exe.dev identity-header allowlist for deployment behind exe.dev's private proxy. A FastMCP `OAuthProxy`/`JWTVerifier` can replace either without touching tool code. Responses never carry a server banner. For Claude.ai's OAuth-requiring connector, `gateway/` bridges the two rather than adding OAuth to this module — see "OAuth for Claude.ai's remote connector" above.
 
 ## Decisions (where the spec left room)
 
