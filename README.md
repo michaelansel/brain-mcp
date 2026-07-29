@@ -107,7 +107,7 @@ Every tool carries MCP's standard annotations (`readOnlyHint`, `destructiveHint`
 `idempotentHint`, `openWorldHint`) — clients that group or gate tools by
 read/write (Claude.ai's connector permissions UI, for one) use these rather
 than needing hardcoded tool-name lists. `read`/`list`/`search`/`glob`/`projects`/
-`project` are read-only; `write`/`edit`/`patch`/`move`/`delete`/`project_create`
+`project` are read-only; `write`/`edit`/`move`/`delete`/`project_create`
 are not, and are further marked destructive except `project_create`, which only
 ever adds (it errors rather than overwriting an existing project).
 
@@ -122,7 +122,6 @@ ever adds (it errors rather than overwriting an existing project).
 
 - `write(path, content)` — create or overwrite; creates parent dirs.
 - `edit(path, old_string, new_string, replace_all=False)` — replace exact text. `old_string` must match the file byte-for-byte, including whitespace and indentation, and must be unique unless `replace_all` is set. Also returns `replacements`.
-- `patch(path, section, content)` — replace one markdown section: the first heading (any level) whose text matches `section` exactly, through to the next heading of the same or higher level. Missing section is an error that lists the sections present.
 - `move(src, dst)` — `git mv`; creates parent dirs.
 - `delete(path)` — remove a file, or a directory recursively.
 
@@ -148,7 +147,8 @@ looked at it:
   the content in git.
 - A successful `write`/`edit` records what it just wrote, so `read → edit →
   edit → write` needs only the one read.
-- `move` and `delete` invalidate the paths they touch, for every session.
+- `move`, `delete`, and a `project_create` that moves a note invalidate the
+  paths they touch, for every session.
 
 The ledger is per-session and process-local: a restart clears it, costing one
 extra `read` before the next write in each surviving session. It assumes a
@@ -179,11 +179,10 @@ via brain-mcp
 ## Decisions (where the spec left room)
 
 - `move` commit messages use `move: <src> -> <dst>` since two paths are involved.
-- A no-op `write`/`patch`/`edit` (content unchanged) returns the current HEAD sha with a "no change" message instead of erroring or creating an empty commit.
+- A no-op `write`/`edit` (content unchanged) returns the current HEAD sha with a "no change" message instead of erroring or creating an empty commit.
 - A byte-identical `write` over an existing file is still refused without a prior read: you can't know it's a no-op without looking.
 - `edit` is not idempotent — replaying it fails because `old_string` is gone — so it carries `idempotentHint: false` alongside `move`/`delete`.
 - `move` onto an existing file overwrites it (like `mv`); `delete` on a directory removes it recursively.
-- Duplicate section headings: `patch` replaces the first match. Headings inside fenced code blocks are ignored.
 - `search` results are sorted by `(path, line)` and capped at `limit`; ripgrep runs with `--hidden --no-ignore` (minus `.git`) so the fallback and rg see the same files.
 - A `project.md` with missing or malformed frontmatter still appears in `projects()` with `status: "unknown"`; `project()` on it raises an actionable error.
 - Project names must be plain directory names (no `/`, no leading `.`).

@@ -30,7 +30,6 @@ from brain_mcp.gitio import (
     write_lock,
 )
 from brain_mcp.pathsafe import confine, rel
-from brain_mcp.sections import SectionNotFound, replace_section
 
 logger = logging.getLogger(__name__)
 
@@ -192,8 +191,8 @@ def build_server(config: BrainConfig) -> FastMCP:
 
     # --- write tools (one commit per call) ---
 
-    # write/patch: same content twice is a documented no-op (see below), so
-    # they're idempotent despite overwriting existing content.
+    # write: same content twice is a documented no-op (see below), so it's
+    # idempotent despite overwriting existing content.
     OVERWRITES_IDEMPOTENT = {
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -258,8 +257,7 @@ def build_server(config: BrainConfig) -> FastMCP:
         write for changing part of an existing file."""
         if not old_string:
             raise ToolError(
-                "old_string is empty; use write to create a file, "
-                "or give the exact text to replace"
+                "old_string is empty; use write to create a file, or give the exact text to replace"
             )
         if old_string == new_string:
             raise ToolError("old_string and new_string are identical; nothing to replace")
@@ -309,36 +307,6 @@ def build_server(config: BrainConfig) -> FastMCP:
             "message": msg.splitlines()[0],
             "replacements": replacements,
         }
-
-    @mcp.tool(annotations=OVERWRITES_IDEMPOTENT)
-    @git_guard
-    async def patch(path: str, section: str, content: str) -> MutationResult:
-        """Replace one markdown section: everything under the first heading
-        matching `section` exactly, up to the next same-or-higher heading."""
-        target = confine(root, path)
-        if not target.is_file():
-            raise ToolError(f"no such file '{path}'")
-        text = target.read_text(encoding="utf-8")
-        try:
-            new_text = replace_section(text, section, content)
-        except SectionNotFound as exc:
-            listing = ", ".join(exc.present) if exc.present else "(none)"
-            raise ToolError(
-                f"no such section '{section}' in {path}; sections present: {listing}"
-            ) from exc
-        r = rel(root, target)
-        async with write_lock:
-            target.write_text(new_text, encoding="utf-8")
-            if not await has_changes(root, [r]):
-                return {
-                    "path": r,
-                    "commit": await head_sha(root),
-                    "message": "no change: section already had that content",
-                }
-            await run_git(root, "add", "--", r)
-            msg = commit_message("patch", r)
-            sha = await commit_paths(root, [r], msg)
-        return {"path": r, "commit": sha, "message": msg.splitlines()[0]}
 
     @mcp.tool(annotations=OVERWRITES_NOT_IDEMPOTENT)
     @git_guard

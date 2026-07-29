@@ -63,14 +63,14 @@ async def main() -> None:
         )
 
         show(
-            "patch: replace 'Next steps' section",
+            "edit: extend the step list",
             unwrap(
                 await client.call_tool(
-                    "patch",
+                    "edit",
                     {
                         "path": "projects/rocket/notes.md",
-                        "section": "Next steps",
-                        "content": "\n- sketch airframe\n- order motor\n- fuel budget\n",
+                        "old_string": "- sketch airframe\n",
+                        "new_string": "- sketch airframe\n- order motor\n- fuel budget\n",
                     },
                 )
             ),

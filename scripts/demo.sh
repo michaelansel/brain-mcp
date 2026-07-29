@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Creates a scratch brain, starts brain-mcp over stdio, and exercises the
-# main flow: fork a project from an inbox note, write, patch, search.
+# main flow: fork a project from an inbox note, write, edit, search.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -24,7 +24,7 @@ async def test_server_ships_instructions(client):
 
 async def test_full_flow_in_memory(brain, client):
     """The main flow end-to-end over MCP: fork a project from an inbox note,
-    write, patch, search, then inspect."""
+    write, edit, search, then inspect."""
     entries = data(await client.call_tool("list", {}))
     assert {e["name"] for e in entries} >= {"agents.md", "inbox"}
 
@@ -45,13 +45,14 @@ async def test_full_flow_in_memory(brain, client):
             },
         )
     )
+    # no read needed: the write above already recorded what this session wrote
     data(
         await client.call_tool(
-            "patch",
+            "edit",
             {
                 "path": "projects/rocket/notes.md",
-                "section": "Next steps",
-                "content": "\n- design\n- fuel\n",
+                "old_string": "- design\n",
+                "new_string": "- design\n- fuel\n",
             },
         )
     )
@@ -71,7 +72,7 @@ async def test_full_flow_in_memory(brain, client):
     # three mutations -> exactly three commits on top of the seed
     log = git(brain, "log", "--format=%s").stdout.splitlines()
     assert log == [
-        "patch: projects/rocket/notes.md",
+        "edit: projects/rocket/notes.md",
         "write: projects/rocket/notes.md",
         "project_create: projects/rocket",
         "seed",

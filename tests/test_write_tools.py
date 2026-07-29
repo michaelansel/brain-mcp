@@ -1,4 +1,4 @@
-"""write, patch, edit, move, delete: commit-per-call, commit hygiene, concurrency."""
+"""write, edit, move, delete: commit-per-call, commit hygiene, concurrency."""
 
 import asyncio
 
@@ -105,88 +105,6 @@ async def test_concurrent_writes_distinct_commits(brain, client):
     assert len(log) == n + 1  # seed + n writes
 
 
-async def test_patch_replaces_section(brain, client):
-    (brain / "doc.md").write_text(
-        "# Doc\n\n## Context\n\nold context\n\n## Next steps\n\n- old step\n\n## End\n\nfin\n"
-    )
-    result = data(
-        await client.call_tool(
-            "patch", {"path": "doc.md", "section": "Next steps", "content": "\n- new step\n"}
-        )
-    )
-    text = (brain / "doc.md").read_text()
-    assert "- new step" in text
-    assert "- old step" not in text
-    assert "old context" in text  # earlier section untouched
-    assert "fin" in text  # later section untouched
-    assert commit_files(brain, result["commit"]) == ["doc.md"]
-    assert commit_message_of(brain, result["commit"]).startswith("patch: doc.md\n")
-
-
-async def test_patch_last_section(brain, client):
-    (brain / "doc.md").write_text("# Doc\n\n## Only\n\nold tail\n")
-    data(
-        await client.call_tool(
-            "patch", {"path": "doc.md", "section": "Only", "content": "\nnew tail\n"}
-        )
-    )
-    text = (brain / "doc.md").read_text()
-    assert text.endswith("new tail\n")
-    assert "old tail" not in text
-
-
-async def test_patch_subsections_replaced_with_parent(brain, client):
-    (brain / "doc.md").write_text(
-        "# Doc\n\n## Parent\n\nbody\n\n### Child\n\nchild body\n\n## Sibling\n\nkeep\n"
-    )
-    data(
-        await client.call_tool(
-            "patch", {"path": "doc.md", "section": "Parent", "content": "\nreplaced\n"}
-        )
-    )
-    text = (brain / "doc.md").read_text()
-    assert "Child" not in text  # lower-level heading belongs to the section
-    assert "## Sibling" in text and "keep" in text
-
-
-async def test_patch_duplicate_headings_first_wins(brain, client):
-    (brain / "doc.md").write_text("## Log\n\nfirst\n\n## Log\n\nsecond\n")
-    data(
-        await client.call_tool("patch", {"path": "doc.md", "section": "Log", "content": "\nnew\n"})
-    )
-    text = (brain / "doc.md").read_text()
-    assert "first" not in text
-    assert "second" in text
-
-
-async def test_patch_missing_section_lists_present(brain, client):
-    with pytest.raises(ToolError, match="sections present: Health, Sleep"):
-        await client.call_tool(
-            "patch", {"path": "areas/health.md", "section": "Decisions", "content": "x"}
-        )
-
-
-async def test_patch_ignores_headings_in_code_fences(brain, client):
-    (brain / "doc.md").write_text(
-        "# Doc\n\n## Real\n\nbody\n\n```\n## Fake heading\n```\n\nmore body\n"
-    )
-    data(
-        await client.call_tool("patch", {"path": "doc.md", "section": "Real", "content": "\nnew\n"})
-    )
-    text = (brain / "doc.md").read_text()
-    assert "Fake heading" not in text  # fence was inside the section body
-    assert "new" in text
-    with pytest.raises(ToolError, match="no such section"):
-        await client.call_tool(
-            "patch", {"path": "doc.md", "section": "Fake heading", "content": "x"}
-        )
-
-
-async def test_patch_missing_file(client):
-    with pytest.raises(ToolError, match="no such file"):
-        await client.call_tool("patch", {"path": "nope.md", "section": "X", "content": "y"})
-
-
 async def seed(brain, client, name, text):
     """Write a file by hand and read it through the tool, so `edit` is allowed."""
     (brain / name).write_text(text)
@@ -195,7 +113,7 @@ async def seed(brain, client, name, text):
     return brain / name
 
 
-async def test_edit_replaces_first_occurrence(brain, client):
+async def test_edit_replace_all(brain, client):
     await seed(brain, client, "doc.md", "# Doc\n\nalpha here\nalpha again\n")
     args = {"path": "doc.md", "old_string": "alpha", "new_string": "beta", "replace_all": True}
     result = data(await client.call_tool("edit", args))
@@ -285,9 +203,7 @@ async def test_edit_non_utf8_file(brain, client):
 
 async def test_edit_traversal_rejected(client):
     with pytest.raises(ToolError):
-        await client.call_tool(
-            "edit", {"path": "../evil.md", "old_string": "a", "new_string": "b"}
-        )
+        await client.call_tool("edit", {"path": "../evil.md", "old_string": "a", "new_string": "b"})
 
 
 async def test_edit_leaves_unrelated_dirty_files_alone(brain, client):
@@ -310,8 +226,8 @@ async def test_edit_leaves_unrelated_dirty_files_alone(brain, client):
 
 async def test_concurrent_edits_do_not_lose_updates(brain, client):
     """The read-verify-write sequence is inside write_lock, so N concurrent
-    edits to one file all land. The old `patch` (read outside the lock) fails
-    this."""
+    edits to one file all land. The old section-based `patch` (which read
+    outside the lock) failed this."""
     n = 8
     await seed(brain, client, "doc.md", "".join(f"marker-{i}\n" for i in range(n)))
     results = await asyncio.gather(
