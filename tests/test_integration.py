@@ -125,6 +125,18 @@ async def test_http_transport_with_token(http_server, brain):
         assert (brain / "inbox" / "http.md").read_text() == "hi\n"
         assert wrote["commit"] == git(brain, "rev-parse", "HEAD").stdout.strip()
 
+        # read-before-write over the real transport: the session id has to
+        # survive the HTTP round trip for the gate to be satisfiable at all
+        await client.call_tool("read", {"path": "inbox/idea.md"})
+        edited = data(
+            await client.call_tool(
+                "edit",
+                {"path": "inbox/idea.md", "old_string": "rocket", "new_string": "spaceship"},
+            )
+        )
+        assert edited["replacements"] == 1
+        assert "spaceship" in (brain / "inbox" / "idea.md").read_text()
+
 
 async def test_http_transport_rejects_bad_token(http_server):
     with pytest.raises(Exception, match="401|[Uu]nauthorized|[Ii]nvalid"):

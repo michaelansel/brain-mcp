@@ -1,11 +1,11 @@
-"""write, patch, move, delete: commit-per-call, commit hygiene, concurrency."""
+"""write, patch, edit, move, delete: commit-per-call, commit hygiene, concurrency."""
 
 import asyncio
 
 import pytest
 from fastmcp.exceptions import ToolError
 
-from tests.conftest import commit_files, commit_message_of, data, git, head_sha
+from tests.conftest import commit_all, commit_files, commit_message_of, data, git, head_sha
 
 
 async def test_write_new_file(brain, client):
@@ -18,6 +18,7 @@ async def test_write_new_file(brain, client):
 
 
 async def test_write_overwrite(brain, client):
+    await client.call_tool("read", {"path": "agents.md"})  # overwriting requires a prior read
     data(await client.call_tool("write", {"path": "agents.md", "content": "# New\n"}))
     assert (brain / "agents.md").read_text() == "# New\n"
 
@@ -29,6 +30,7 @@ async def test_write_creates_parent_dirs(brain, client):
 
 async def test_write_noop_returns_head(brain, client):
     before = head_sha(brain)
+    await client.call_tool("read", {"path": "agents.md"})
     result = data(
         await client.call_tool(
             "write", {"path": "agents.md", "content": (brain / "agents.md").read_text()}
@@ -183,6 +185,147 @@ async def test_patch_ignores_headings_in_code_fences(brain, client):
 async def test_patch_missing_file(client):
     with pytest.raises(ToolError, match="no such file"):
         await client.call_tool("patch", {"path": "nope.md", "section": "X", "content": "y"})
+
+
+async def seed(brain, client, name, text):
+    """Write a file by hand and read it through the tool, so `edit` is allowed."""
+    (brain / name).write_text(text)
+    commit_all(brain, f"seed {name}")
+    await client.call_tool("read", {"path": name})
+    return brain / name
+
+
+async def test_edit_replaces_first_occurrence(brain, client):
+    await seed(brain, client, "doc.md", "# Doc\n\nalpha here\nalpha again\n")
+    args = {"path": "doc.md", "old_string": "alpha", "new_string": "beta", "replace_all": True}
+    result = data(await client.call_tool("edit", args))
+    assert (brain / "doc.md").read_text() == "# Doc\n\nbeta here\nbeta again\n"
+    assert result["replacements"] == 2
+    assert commit_files(brain, result["commit"]) == ["doc.md"]
+    assert commit_message_of(brain, result["commit"]) == "edit: doc.md\n\nvia brain-mcp"
+
+
+async def test_edit_unique_match(brain, client):
+    await seed(brain, client, "doc.md", "# Doc\n\none\ntwo\nthree\n")
+    args = {"path": "doc.md", "old_string": "two", "new_string": "TWO"}
+    result = data(await client.call_tool("edit", args))
+    assert (brain / "doc.md").read_text() == "# Doc\n\none\nTWO\nthree\n"
+    assert result["replacements"] == 1
+
+
+async def test_edit_ambiguous_match_errors(brain, client):
+    await seed(brain, client, "doc.md", "x\nx\nx\n")
+    with pytest.raises(ToolError, match="appears 3 times"):
+        await client.call_tool("edit", {"path": "doc.md", "old_string": "x", "new_string": "y"})
+    assert (brain / "doc.md").read_text() == "x\nx\nx\n"  # untouched
+
+
+async def test_edit_not_found_errors(brain, client):
+    await seed(brain, client, "doc.md", "hello\n")
+    with pytest.raises(ToolError, match="old_string not found"):
+        await client.call_tool("edit", {"path": "doc.md", "old_string": "nope", "new_string": "y"})
+
+
+async def test_edit_empty_old_string_errors(brain, client):
+    await seed(brain, client, "doc.md", "hello\n")
+    with pytest.raises(ToolError, match="old_string is empty"):
+        await client.call_tool("edit", {"path": "doc.md", "old_string": "", "new_string": "y"})
+
+
+async def test_edit_identical_strings_error(brain, client):
+    await seed(brain, client, "doc.md", "hello\n")
+    with pytest.raises(ToolError, match="identical"):
+        await client.call_tool(
+            "edit", {"path": "doc.md", "old_string": "hello", "new_string": "hello"}
+        )
+
+
+async def test_edit_missing_file(client):
+    with pytest.raises(ToolError, match="no such file"):
+        await client.call_tool("edit", {"path": "ghost.md", "old_string": "a", "new_string": "b"})
+
+
+async def test_edit_directory_errors(client):
+    with pytest.raises(ToolError, match="is a directory"):
+        await client.call_tool("edit", {"path": "inbox", "old_string": "a", "new_string": "b"})
+
+
+async def test_edit_multiline_block_with_indentation(brain, client):
+    await seed(brain, client, "doc.md", "start\n\n    - one\n    - two\n\nend\n")
+    args = {
+        "path": "doc.md",
+        "old_string": "    - one\n    - two\n",
+        "new_string": "    - one\n    - two\n    - three\n",
+    }
+    data(await client.call_tool("edit", args))
+    assert (brain / "doc.md").read_text() == "start\n\n    - one\n    - two\n    - three\n\nend\n"
+
+
+async def test_edit_unicode(brain, client):
+    await seed(brain, client, "doc.md", "# メモ\n\n縦書き\n")
+    args = {"path": "doc.md", "old_string": "縦書き", "new_string": "横書き"}
+    data(await client.call_tool("edit", args))
+    assert (brain / "doc.md").read_text() == "# メモ\n\n横書き\n"
+
+
+async def test_edit_deletes_text_with_empty_new_string(brain, client):
+    await seed(brain, client, "doc.md", "keep\ndrop me\nkeep\n")
+    args = {"path": "doc.md", "old_string": "drop me\n", "new_string": ""}
+    result = data(await client.call_tool("edit", args))
+    assert (brain / "doc.md").read_text() == "keep\nkeep\n"
+    assert result["replacements"] == 1
+
+
+async def test_edit_non_utf8_file(brain, client):
+    (brain / "bin.md").write_bytes(b"\xff\xfe\x00binary")
+    commit_all(brain, "binary")
+    with pytest.raises(ToolError, match="not a UTF-8 text file"):
+        await client.call_tool("edit", {"path": "bin.md", "old_string": "a", "new_string": "b"})
+
+
+async def test_edit_traversal_rejected(client):
+    with pytest.raises(ToolError):
+        await client.call_tool(
+            "edit", {"path": "../evil.md", "old_string": "a", "new_string": "b"}
+        )
+
+
+async def test_edit_leaves_unrelated_dirty_files_alone(brain, client):
+    await seed(brain, client, "doc.md", "target\n")
+    (brain / "dirty.md").write_text("uncommitted by hand\n")
+    (brain / "staged.md").write_text("staged by hand\n")
+    git(brain, "add", "--", "staged.md")
+
+    result = data(
+        await client.call_tool(
+            "edit", {"path": "doc.md", "old_string": "target", "new_string": "hit"}
+        )
+    )
+
+    assert commit_files(brain, result["commit"]) == ["doc.md"]
+    status = git(brain, "status", "--porcelain").stdout
+    assert "?? dirty.md" in status
+    assert "A  staged.md" in status
+
+
+async def test_concurrent_edits_do_not_lose_updates(brain, client):
+    """The read-verify-write sequence is inside write_lock, so N concurrent
+    edits to one file all land. The old `patch` (read outside the lock) fails
+    this."""
+    n = 8
+    await seed(brain, client, "doc.md", "".join(f"marker-{i}\n" for i in range(n)))
+    results = await asyncio.gather(
+        *(
+            client.call_tool(
+                "edit", {"path": "doc.md", "old_string": f"marker-{i}", "new_string": f"done-{i}"}
+            )
+            for i in range(n)
+        )
+    )
+    shas = [data(r)["commit"] for r in results]
+    assert len(set(shas)) == n  # every edit got its own commit
+    final = (brain / "doc.md").read_text()
+    assert final == "".join(f"done-{i}\n" for i in range(n))  # nothing lost
 
 
 async def test_move(brain, client):

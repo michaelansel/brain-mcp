@@ -7,7 +7,7 @@ import subprocess
 import pytest
 from fastmcp import Client
 
-from brain_mcp import gitio
+from brain_mcp import gitio, readstate
 from brain_mcp.config import BrainConfig
 from brain_mcp.server import build_server
 
@@ -45,6 +45,12 @@ def commit_all(root, message="seed"):
     git(root, "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-q", "-m", message)
 
 
+@pytest.fixture(autouse=True)
+def _reset_read_state():
+    """readstate is module-level too, but it's plain dicts — clearing is enough."""
+    readstate.reset()
+
+
 @pytest.fixture
 def brain(tmp_path):
     root = tmp_path / "brain"
@@ -71,6 +77,14 @@ def server(config):
 
 @pytest.fixture
 async def client(server):
+    async with Client(server) as c:
+        yield c
+
+
+@pytest.fixture
+async def other_client(server):
+    """A second client on the same server — a distinct MCP session, so it has
+    its own read state."""
     async with Client(server) as c:
         yield c
 

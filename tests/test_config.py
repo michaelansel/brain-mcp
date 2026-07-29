@@ -112,3 +112,20 @@ def test_bad_git_push(tmp_path):
     repo = make_repo(tmp_path / "brain")
     with pytest.raises(ConfigError, match="BRAIN_MCP_GIT_PUSH"):
         load_config({"BRAIN_ROOT": str(repo), "BRAIN_MCP_GIT_PUSH": "yes"})
+
+
+def test_read_before_write_defaults_on(tmp_path):
+    repo = make_repo(tmp_path / "brain")
+    assert load_config({"BRAIN_ROOT": str(repo)}).read_before_write is True
+
+
+def test_read_before_write_can_be_disabled(tmp_path):
+    repo = make_repo(tmp_path / "brain")
+    cfg = load_config({"BRAIN_ROOT": str(repo), "BRAIN_MCP_READ_BEFORE_WRITE": "false"})
+    assert cfg.read_before_write is False
+
+
+def test_bad_read_before_write(tmp_path):
+    repo = make_repo(tmp_path / "brain")
+    with pytest.raises(ConfigError, match="BRAIN_MCP_READ_BEFORE_WRITE"):
+        load_config({"BRAIN_ROOT": str(repo), "BRAIN_MCP_READ_BEFORE_WRITE": "no"})

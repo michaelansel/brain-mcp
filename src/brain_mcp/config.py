@@ -24,6 +24,7 @@ class BrainConfig:
     port: int = 8000
     git_remote: str | None = None  # remote name/URL to push HEAD to after each commit
     git_push: bool = True  # escape hatch: pause pushing without unsetting git_remote
+    read_before_write: bool = True  # require a prior read before changing an existing file
 
 
 def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
@@ -75,6 +76,11 @@ def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
         raise ConfigError(f"BRAIN_MCP_GIT_PUSH '{push_raw}' must be 'true' or 'false'")
     git_push = push_raw == "true"
 
+    rbw_raw = env.get("BRAIN_MCP_READ_BEFORE_WRITE", "true").strip().lower()
+    if rbw_raw not in ("true", "false"):
+        raise ConfigError(f"BRAIN_MCP_READ_BEFORE_WRITE '{rbw_raw}' must be 'true' or 'false'")
+    read_before_write = rbw_raw == "true"
+
     return BrainConfig(
         root=root,
         token=token,
@@ -83,4 +89,5 @@ def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
         port=port,
         git_remote=git_remote,
         git_push=git_push,
+        read_before_write=read_before_write,
     )
