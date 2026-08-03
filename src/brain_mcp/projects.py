@@ -13,7 +13,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from brain_mcp import frontmatter, readstate
+from brain_mcp import frontmatter
 from brain_mcp.config import BrainConfig
 from brain_mcp.errors import ToolError, git_guard
 from brain_mcp.gitio import commit_message, commit_paths, run_git, write_lock
@@ -129,8 +129,6 @@ def register(mcp: FastMCP, config: BrainConfig) -> None:
                 r_note = rel(root, note)
                 r_dest = rel(root, pdir / note.name)
                 await run_git(root, "mv", "-f", "--", r_note, r_dest)
-                readstate.forget(r_note)
-                readstate.forget(r_dest)
                 commit_targets += [r_note, r_dest]
             msg = commit_message("project_create", f"{PROJECTS_DIR}/{name}")
             sha = await commit_paths(root, commit_targets, msg)

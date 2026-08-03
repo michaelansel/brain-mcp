@@ -5,7 +5,15 @@ import asyncio
 import pytest
 from fastmcp.exceptions import ToolError
 
-from tests.conftest import commit_all, commit_files, commit_message_of, data, git, head_sha
+from tests.conftest import (
+    commit_all,
+    commit_files,
+    commit_message_of,
+    data,
+    git,
+    head_sha,
+    read_hash,
+)
 
 
 async def test_write_new_file(brain, client):
@@ -18,8 +26,10 @@ async def test_write_new_file(brain, client):
 
 
 async def test_write_overwrite(brain, client):
-    await client.call_tool("read", {"path": "agents.md"})  # overwriting requires a prior read
-    data(await client.call_tool("write", {"path": "agents.md", "content": "# New\n"}))
+    h = await read_hash(client, "agents.md")  # overwriting requires the hash
+    data(
+        await client.call_tool("write", {"path": "agents.md", "content": "# New\n", "base_hash": h})
+    )
     assert (brain / "agents.md").read_text() == "# New\n"
 
 
@@ -30,10 +40,11 @@ async def test_write_creates_parent_dirs(brain, client):
 
 async def test_write_noop_returns_head(brain, client):
     before = head_sha(brain)
-    await client.call_tool("read", {"path": "agents.md"})
+    h = await read_hash(client, "agents.md")
     result = data(
         await client.call_tool(
-            "write", {"path": "agents.md", "content": (brain / "agents.md").read_text()}
+            "write",
+            {"path": "agents.md", "content": (brain / "agents.md").read_text(), "base_hash": h},
         )
     )
     assert result["commit"] == before
@@ -106,10 +117,10 @@ async def test_concurrent_writes_distinct_commits(brain, client):
 
 
 async def seed(brain, client, name, text):
-    """Write a file by hand and read it through the tool, so `edit` is allowed."""
+    """Write a file by hand and commit it. `edit` needs no prior read — a
+    byte-exact old_string is its own proof — so nothing else is required."""
     (brain / name).write_text(text)
     commit_all(brain, f"seed {name}")
-    await client.call_tool("read", {"path": name})
     return brain / name
 
 

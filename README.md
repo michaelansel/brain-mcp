@@ -114,14 +114,14 @@ ever adds (it errors rather than overwriting an existing project).
 **Read**
 
 - `list(path="")` — one directory level. Entries: `name`, `path`, `type` (`file`|`dir`), `size` (bytes; 0 for dirs), `modified` (ISO 8601 UTC).
-- `read(path)` — file contents (UTF-8).
+- `read(path)` — `{"content", "hash"}`: the file's UTF-8 contents and their sha256. Pass the hash back as `base_hash` to `write`/`edit`.
 - `search(query, path="", limit=50, regex=False)` — ripgrep across the brain (pure-Python fallback when `rg` is absent). Hits: `path`, `line`, `text`. Literal by default.
 - `glob(pattern)` — paths matching a glob, e.g. `projects/**/*.md`.
 
 **Write** — each call commits and returns `{"path", "commit", "message"}`.
 
-- `write(path, content)` — create or overwrite; creates parent dirs.
-- `edit(path, old_string, new_string, replace_all=False)` — replace exact text. `old_string` must match the file byte-for-byte, including whitespace and indentation, and must be unique unless `replace_all` is set. Also returns `replacements`.
+- `write(path, content, base_hash=None)` — create or overwrite; creates parent dirs. Overwriting an existing file requires `base_hash`.
+- `edit(path, old_string, new_string, replace_all=False, base_hash=None)` — replace exact text. `old_string` must match the file byte-for-byte, including whitespace and indentation, and must be unique unless `replace_all` is set. `base_hash` is optional here and verified when given. Also returns `replacements`.
 - `move(src, dst)` — `git mv`; creates parent dirs.
 - `delete(path)` — remove a file, or a directory recursively.
 
@@ -135,27 +135,29 @@ ever adds (it errors rather than overwriting an existing project).
 
 The user edits the brain by hand in their own editor while agents are working
 in it, so an agent writing from a stale mental model can silently destroy an
-uncommitted hand edit. Changing an existing file therefore requires having
-looked at it:
+uncommitted hand edit. Changing an existing file therefore requires proving you
+have seen its current contents.
 
-- `edit`, and `write` when the target already exists, both require that **this
-  session** has `read` that path, and that the file still hashes to what the
-  session saw. Two failure modes, both actionable in one call: *read it first*,
-  or *it changed on disk since you read it — read it again*.
-- Creating a new file, `move`, `delete`, and `project_create` are ungated —
+The proof travels **with the request**, not in server memory. `read` returns the
+content and its sha256; `write` and `edit` take that back as `base_hash` and
+compare it against what is on disk right now, inside the write lock:
+
+- `write` over an existing file **requires** `base_hash`. Two failure modes,
+  both actionable in one call: *read it first and pass the hash*, or *it changed
+  on disk since you read it — read it again*.
+- `edit` takes `base_hash` **optionally**. A byte-exact `old_string` is already
+  proof the caller saw the current text — an agent working from a stale copy
+  cannot produce one — so the hash is not required. Supplied, it additionally
+  catches a change *elsewhere* in the file, which `old_string` alone cannot see.
+- Creating a new file, `move`, `delete`, and `project_create` need no hash —
   creation can't clobber, and the others name a whole path explicitly and leave
   the content in git.
-- A successful `write`/`edit` records what it just wrote, so `read → edit →
-  edit → write` needs only the one read.
-- `move`, `delete`, and a `project_create` that moves a note invalidate the
-  paths they touch, for every session.
 
-The ledger is per-session and process-local: a restart clears it, costing one
-extra `read` before the next write in each surviving session. It assumes a
-single stateful server process — **do not** run uvicorn with `--workers` or
-enable `stateless_http`, or a fresh session id per request would make the gate
-unsatisfiable. `BRAIN_MCP_READ_BEFORE_WRITE=false` is the one-restart escape
-hatch.
+Because the server stores nothing between calls, this survives client
+reconnects, server restarts, and clients that open a **fresh MCP session per
+tool call** — which Claude.ai's connector does, and which no session-keyed
+scheme can satisfy. It also means uvicorn `--workers` and `stateless_http` are
+safe. `BRAIN_MCP_READ_BEFORE_WRITE=false` is the one-restart escape hatch.
 
 Commit message format, staged paths only, never `git add -A`:
 
@@ -171,8 +173,8 @@ via brain-mcp
 - **No subprocesses beyond the brain.** `git` and `rg` are the only subprocesses, both rooted at the brain. The server holds no credentials and opens no other repos.
 - **One commit per mutating call**, restricted by pathspec to the affected files. Unrelated dirty or staged files in the brain are left exactly as they were.
 - **Serialized writes.** A single async lock wraps every mutate-and-commit; concurrent writes produce distinct, non-interleaved commits.
-- **No caching.** Every call reads current state from disk, so hand edits to the brain are always visible immediately. The read-before-write ledger is not an exception: it stores content hashes only, never content, and nothing in it is ever served to a caller.
-- **Read before write.** Changing an existing file requires that the calling session read it first and that it still matches what that session saw — so an agent can't overwrite a hand edit it never looked at. Per-session, process-local, LRU-bounded at 64 sessions × 256 paths. Fails closed on a missing read (actionable: read and retry) and open on a missing session identity (unenforceable, so it logs a warning instead of bricking writes).
+- **No state between calls.** Every call reads current state from disk, so hand edits to the brain are always visible immediately. The server keeps nothing at all between requests — no cache, and no ledger of who read what.
+- **Read before write.** Overwriting an existing file requires `base_hash`, the sha256 `read` returned, and it must still match what is on disk — so an agent can't overwrite a hand edit it never looked at. `edit` accepts it optionally, since a byte-exact `old_string` already carries the same proof. Fails closed on a missing or stale hash, both actionable in one call.
 - **Auth seam.** All HTTP auth lives in one small module (`auth.py`) with two modes: a static bearer token, or an exe.dev identity-header allowlist for deployment behind exe.dev's private proxy. A FastMCP `OAuthProxy`/`JWTVerifier` can replace either without touching tool code. Responses never carry a server banner. For Claude.ai's OAuth-requiring connector, `gateway/` bridges the two rather than adding OAuth to this module — see "OAuth for Claude.ai's remote connector" above.
 - **Push is best-effort.** With `BRAIN_MCP_GIT_REMOTE` set, every commit kicks off a background `git push` of `HEAD` — it never blocks or fails a tool call. Pushes are serialized by their own lock (separate from the write lock), so they never race each other or land out of commit order. Failures are logged, not surfaced to the caller, and self-heal: the next mutating call always pushes current `HEAD` again, so a transient outage catches up on its own.
 
@@ -180,7 +182,8 @@ via brain-mcp
 
 - `move` commit messages use `move: <src> -> <dst>` since two paths are involved.
 - A no-op `write`/`edit` (content unchanged) returns the current HEAD sha with a "no change" message instead of erroring or creating an empty commit.
-- A byte-identical `write` over an existing file is still refused without a prior read: you can't know it's a no-op without looking.
+- A byte-identical `write` over an existing file is still refused without `base_hash`: you can't know it's a no-op without looking.
+- `edit` does not require `base_hash` while `write` does. `old_string` must match byte-for-byte, so it already proves the caller saw the current text; `write` replaces the whole file and carries no such proof. Requiring it on `edit` would add friction without adding a guarantee.
 - `edit` is not idempotent — replaying it fails because `old_string` is gone — so it carries `idempotentHint: false` alongside `move`/`delete`.
 - `move` onto an existing file overwrites it (like `mv`); `delete` on a directory removes it recursively.
 - `search` results are sorted by `(path, line)` and capped at `limit`; ripgrep runs with `--hidden --no-ignore` (minus `.git`) so the fallback and rg see the same files.

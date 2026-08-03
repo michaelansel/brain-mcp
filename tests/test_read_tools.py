@@ -41,7 +41,8 @@ async def test_list_on_file_errors(client):
 
 async def test_read(client):
     result = await client.call_tool("read", {"path": "inbox/idea.md"})
-    assert "Build a rocket" in result.data
+    assert "Build a rocket" in result.data.content
+    assert len(result.data.hash) == 64
 
 
 async def test_read_missing(client):
@@ -57,20 +58,20 @@ async def test_read_traversal_rejected(client):
 async def test_read_empty_file(brain, client):
     (brain / "empty.md").write_text("")
     result = await client.call_tool("read", {"path": "empty.md"})
-    assert result.data == ""
+    assert result.data.content == ""
 
 
 async def test_read_unicode_and_spaces(brain, client):
     (brain / "notes véritables.md").write_text("café ☕\n")
     result = await client.call_tool("read", {"path": "notes véritables.md"})
-    assert "café" in result.data
+    assert "café" in result.data.content
 
 
 async def test_read_large_file(brain, client):
     big = "line of filler text\n" * 300_000  # ~5.7 MB
     (brain / "big.md").write_text(big)
     result = await client.call_tool("read", {"path": "big.md"})
-    assert len(result.data) == len(big)
+    assert len(result.data.content) == len(big)
 
 
 async def test_search_literal(client):
@@ -156,4 +157,4 @@ async def test_reads_see_external_edits_without_restart(brain, client):
     (brain / "agents.md").write_text("# Conventions\n\nEdited outside.\n")
     commit_all(brain, "external edit")
     result = await client.call_tool("read", {"path": "agents.md"})
-    assert "Edited outside" in result.data
+    assert "Edited outside" in result.data.content

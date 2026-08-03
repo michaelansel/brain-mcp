@@ -155,7 +155,7 @@ async def test_exedev_identity_header_grants_access(exedev_server, brain):
     transport = StreamableHttpTransport(exedev_server, headers={"X-ExeDev-Email": "me@example.com"})
     async with Client(transport) as client:
         result = await client.call_tool("read", {"path": "inbox/idea.md"})
-        assert "Build a rocket" in result.data
+        assert "Build a rocket" in result.data.content
         wrote = data(
             await client.call_tool("write", {"path": "inbox/via-exe.md", "content": "x\n"})
         )

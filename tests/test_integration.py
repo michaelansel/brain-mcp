@@ -45,7 +45,7 @@ async def test_full_flow_in_memory(brain, client):
             },
         )
     )
-    # no read needed: the write above already recorded what this session wrote
+    # no base_hash needed: a byte-exact old_string is its own proof
     data(
         await client.call_tool(
             "edit",
@@ -121,18 +121,26 @@ def http_server(brain):
 async def test_http_transport_with_token(http_server, brain):
     async with Client(http_server, auth=BearerAuth("test-token")) as client:
         result = await client.call_tool("read", {"path": "inbox/idea.md"})
-        assert "Build a rocket" in result.data
+        assert "Build a rocket" in result.data.content
+        base_hash = result.data.hash
         wrote = data(await client.call_tool("write", {"path": "inbox/http.md", "content": "hi\n"}))
         assert (brain / "inbox" / "http.md").read_text() == "hi\n"
         assert wrote["commit"] == git(brain, "rev-parse", "HEAD").stdout.strip()
 
-        # read-before-write over the real transport: the session id has to
-        # survive the HTTP round trip for the gate to be satisfiable at all
-        await client.call_tool("read", {"path": "inbox/idea.md"})
+    # A hash read in one MCP session must authorize a change in another, over
+    # the real transport. The Claude.ai connector opens a fresh session per
+    # tool call, which the old per-session ledger could never satisfy — it
+    # refused every edit with "read it first" no matter how often it re-read.
+    async with Client(http_server, auth=BearerAuth("test-token")) as client:
         edited = data(
             await client.call_tool(
                 "edit",
-                {"path": "inbox/idea.md", "old_string": "rocket", "new_string": "spaceship"},
+                {
+                    "path": "inbox/idea.md",
+                    "old_string": "rocket",
+                    "new_string": "spaceship",
+                    "base_hash": base_hash,
+                },
             )
         )
         assert edited["replacements"] == 1

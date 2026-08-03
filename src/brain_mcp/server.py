@@ -7,16 +7,15 @@ in their own editor, so nothing is cached. Mutating tools serialize through
 
 from __future__ import annotations
 
-import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
 
-from fastmcp import Context, FastMCP
+from fastmcp import FastMCP
 
+from brain_mcp import contenthash, searchio
 from brain_mcp import projects as projects_module
-from brain_mcp import readstate, searchio
 from brain_mcp.auth import build_auth
 from brain_mcp.config import BrainConfig
 from brain_mcp.errors import ToolError, git_guard
@@ -31,8 +30,6 @@ from brain_mcp.gitio import (
 )
 from brain_mcp.pathsafe import confine, rel
 
-logger = logging.getLogger(__name__)
-
 # Injected into every enrolled session at initialization — the one channel
 # that reaches all surfaces. Policy lives in agents.md, not here.
 INSTRUCTIONS = (
@@ -41,9 +38,16 @@ INSTRUCTIONS = (
     "session, read agents.md at the root and follow its conventions. Capture "
     "is explicit: write only when the user asks, or when a conversation "
     "produces a durable decision or artifact worth keeping. Read a file before "
-    "changing it: edit (exact-string replacement) and write over an existing "
-    "file both require that you read it first in this session."
+    "changing it: read returns the content and its hash, and overwriting an "
+    "existing file with write requires passing that hash back as base_hash. "
+    "Prefer edit (exact-string replacement) to change part of a file; pass "
+    "base_hash there too when you have it."
 )
+
+
+class ReadResult(TypedDict):
+    content: str
+    hash: str  # sha256 hex; pass back as base_hash to write/edit
 
 
 class Entry(TypedDict):
@@ -77,40 +81,29 @@ def build_server(config: BrainConfig) -> FastMCP:
 
     # --- read-before-write ---
 
-    def session_of(ctx: Context) -> str | None:
-        """This call's session id, or None when the transport has no session.
-
-        A missing read is actionable and fails closed; a missing session
-        identity is unenforceable in principle — no error text could help the
-        caller — so it fails open with a warning rather than bricking writes.
-        """
-        try:
-            return ctx.session_id
-        except RuntimeError:
-            logger.warning("no MCP session id available; read-before-write is not enforced")
-            return None
-
     def read_text(target: Path, path: str) -> str:
         try:
             return target.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             raise ToolError(f"'{path}' is not a UTF-8 text file") from exc
 
-    def require_prior_read(session: str | None, r: str, current: str) -> None:
-        """Refuse to change a file the caller hasn't seen.
+    def require_base_hash(base_hash: str | None, r: str, current: str, *, required: bool) -> None:
+        """Refuse to change a file the caller can't prove it has seen.
 
         Caller holds `write_lock` and has just read `current` off disk, so the
-        comparison can't race a hand edit.
+        comparison can't race a hand edit. `required` is False for edit, where
+        a byte-exact `old_string` already proves the caller saw the current
+        text — there, a supplied hash additionally catches changes elsewhere
+        in the file.
         """
-        if not config.read_before_write or session is None:
+        if not config.read_before_write or (base_hash is None and not required):
             return
-        recorded = readstate.seen(session, r)
-        if recorded is None:
+        if base_hash is None:
             raise ToolError(
-                f"read '{r}' first — this server refuses to change a file you haven't "
-                f"read in this session; call read('{r}') and try again"
+                f"read '{r}' first and pass the hash it returns as base_hash — this "
+                f"server refuses to overwrite a file you haven't seen"
             )
-        if recorded != readstate.digest(current):
+        if base_hash != contenthash.digest(current):
             raise ToolError(
                 f"'{r}' changed on disk since you read it — the user edits the brain by "
                 f"hand. Read it again, reconcile, then retry."
@@ -150,18 +143,17 @@ def build_server(config: BrainConfig) -> FastMCP:
         return sorted(entries, key=lambda e: e["name"])
 
     @mcp.tool(annotations=READ_ONLY)
-    def read(path: str, *, ctx: Context) -> str:
-        """Read a file's contents."""
+    def read(path: str) -> ReadResult:
+        """Read a file. Returns its `content` and the `hash` of that content —
+        pass the hash back as `base_hash` to write (required to overwrite) or
+        edit (optional) to prove you're changing what you actually saw."""
         target = confine(root, path)
         if not target.exists():
             raise ToolError(f"no such file '{path}'")
         if target.is_dir():
             raise ToolError(f"'{path}' is a directory, not a file; use list")
         content = read_text(target, path)
-        session = session_of(ctx)
-        if session is not None:
-            readstate.record(session, rel(root, target), content)
-        return content
+        return {"content": content, "hash": contenthash.digest(content)}
 
     @mcp.tool(annotations=READ_ONLY)
     def search(query: str, path: str = "", limit: int = 50, regex: bool = False) -> list[Hit]:
@@ -210,26 +202,23 @@ def build_server(config: BrainConfig) -> FastMCP:
 
     @mcp.tool(annotations=OVERWRITES_IDEMPOTENT)
     @git_guard
-    async def write(path: str, content: str, *, ctx: Context) -> MutationResult:
+    async def write(path: str, content: str, base_hash: str | None = None) -> MutationResult:
         """Create or overwrite a file. Parent directories are created.
-        Overwriting an existing file requires having read it in this session;
-        prefer edit to change part of one."""
+        Overwriting an existing file requires `base_hash` — the `hash` that
+        read returned for it. Prefer edit to change part of one."""
         target = confine(root, path)
         if target.is_dir():
             raise ToolError(f"'{path}' is a directory; give a file path")
         r = rel(root, target)
-        session = session_of(ctx)
         async with write_lock:
-            # Inside the lock so the gate can't race a hand edit.
+            # Inside the lock so the check can't race a hand edit.
             if target.is_file():
-                require_prior_read(session, r, read_text(target, path))
+                require_base_hash(base_hash, r, read_text(target, path), required=True)
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
             except OSError as exc:
                 raise ToolError(f"cannot write '{path}': {exc}") from exc
-            if session is not None:
-                readstate.record(session, r, content)
             if not await has_changes(root, [r]):
                 return {
                     "path": r,
@@ -248,13 +237,13 @@ def build_server(config: BrainConfig) -> FastMCP:
         old_string: str,
         new_string: str,
         replace_all: bool = False,
-        *,
-        ctx: Context,
+        base_hash: str | None = None,
     ) -> EditResult:
         """Replace exact text in a file. `old_string` must match the file
         byte-for-byte, including whitespace and indentation, and must be unique
-        unless `replace_all` is set. Read the file first. Prefer this over
-        write for changing part of an existing file."""
+        unless `replace_all` is set. Read the file first; pass the `hash` read
+        returned as `base_hash` to also catch changes elsewhere in the file.
+        Prefer this over write for changing part of an existing file."""
         if not old_string:
             raise ToolError(
                 "old_string is empty; use write to create a file, or give the exact text to replace"
@@ -265,14 +254,13 @@ def build_server(config: BrainConfig) -> FastMCP:
         if target.is_dir():
             raise ToolError(f"'{path}' is a directory; give a file path")
         r = rel(root, target)
-        session = session_of(ctx)
         async with write_lock:
             # Read, verify and write all inside the lock: concurrent edits to
             # one file must not lose updates.
             if not target.is_file():
                 raise ToolError(f"no such file '{path}'")
             text = read_text(target, path)
-            require_prior_read(session, r, text)
+            require_base_hash(base_hash, r, text, required=False)
             count = text.count(old_string)
             if count == 0:
                 raise ToolError(
@@ -289,8 +277,6 @@ def build_server(config: BrainConfig) -> FastMCP:
             replacements = count if replace_all else 1
             new_text = text.replace(old_string, new_string, -1 if replace_all else 1)
             target.write_text(new_text, encoding="utf-8")
-            if session is not None:
-                readstate.record(session, r, new_text)
             if not await has_changes(root, [r]):
                 return {
                     "path": r,
@@ -326,8 +312,6 @@ def build_server(config: BrainConfig) -> FastMCP:
             except OSError as exc:
                 raise ToolError(f"cannot move to '{dst}': {exc}") from exc
             await run_git(root, "mv", "-f", "--", r_src, r_dst)
-            readstate.forget(r_src)
-            readstate.forget(r_dst)
             msg = commit_message("move", f"{r_src} -> {r_dst}")
             sha = await commit_paths(root, [r_src, r_dst], msg)
         return {"path": r_dst, "commit": sha, "message": msg.splitlines()[0]}
@@ -343,7 +327,6 @@ def build_server(config: BrainConfig) -> FastMCP:
         rm_args = ["rm", "-q", "-r", "--"] if target.is_dir() else ["rm", "-q", "--"]
         async with write_lock:
             await run_git(root, *rm_args, r)
-            readstate.forget(r)
             msg = commit_message("delete", r)
             sha = await commit_paths(root, [r], msg)
         return {"path": r, "commit": sha, "message": msg.splitlines()[0]}
