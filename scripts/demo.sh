@@ -25,7 +25,11 @@ git -C "$BRAIN" -c user.name=demo -c user.email=demo@localhost commit -qm "seed 
 
 echo "Scratch brain: $BRAIN"
 
-BRAIN_ROOT="$BRAIN" uv run python scripts/demo_driver.py
+# Everything here is committed seconds apart, which is exactly the burst of
+# in-progress work the quiet window suppresses. Zero it so the demo shows the
+# refresh request a real session would get on returning to a cold project.
+BRAIN_ROOT="$BRAIN" BRAIN_MCP_SUMMARY_QUIET_MINUTES=0 \
+  uv run python scripts/demo_driver.py
 
 echo
 echo "=== git log in the brain (one commit per mutating call) ==="

@@ -25,6 +25,11 @@ class BrainConfig:
     git_remote: str | None = None  # remote name/URL to push HEAD to after each commit
     git_push: bool = True  # escape hatch: pause pushing without unsetting git_remote
     read_before_write: bool = True  # require a prior read before changing an existing file
+    # When a folder summary is far enough behind its notes to be worth a rewrite.
+    # Any one of these is enough; see summaries.py.
+    summary_min_files: int = 3  # changed files that make drift worth mentioning
+    summary_max_age_days: int = 30  # matches the stale-state threshold in weekly-review.md
+    summary_quiet_minutes: int = 60  # don't interrupt a burst of work still in progress
 
 
 def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
@@ -56,11 +61,7 @@ def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
             f"(found repo at '{toplevel}')"
         )
 
-    port_raw = env.get("BRAIN_MCP_PORT", "8000")
-    try:
-        port = int(port_raw)
-    except ValueError as exc:
-        raise ConfigError(f"BRAIN_MCP_PORT '{port_raw}' is not a number") from exc
+    port = _number(env, "BRAIN_MCP_PORT", 8000)
 
     token = env.get("BRAIN_MCP_TOKEN") or None
     emails_raw = env.get("BRAIN_MCP_EXEDEV_EMAILS", "")
@@ -90,4 +91,15 @@ def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
         git_remote=git_remote,
         git_push=git_push,
         read_before_write=read_before_write,
+        summary_min_files=_number(env, "BRAIN_MCP_SUMMARY_MIN_FILES", 3),
+        summary_max_age_days=_number(env, "BRAIN_MCP_SUMMARY_MAX_AGE_DAYS", 30),
+        summary_quiet_minutes=_number(env, "BRAIN_MCP_SUMMARY_QUIET_MINUTES", 60),
     )
+
+
+def _number(env: Mapping[str, str], name: str, default: int) -> int:
+    raw = env.get(name, str(default))
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} '{raw}' is not a number") from exc

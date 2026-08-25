@@ -10,11 +10,11 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from fastmcp import FastMCP
 
-from brain_mcp import contenthash, searchio
+from brain_mcp import contenthash, searchio, summaries
 from brain_mcp import projects as projects_module
 from brain_mcp.auth import build_auth
 from brain_mcp.config import BrainConfig
@@ -41,13 +41,17 @@ INSTRUCTIONS = (
     "changing it: read returns the content and its hash, and overwriting an "
     "existing file with write requires passing that hash back as base_hash. "
     "Prefer edit (exact-string replacement) to change part of a file; pass "
-    "base_hash there too when you have it."
+    "base_hash there too when you have it. A folder's summary.md is a state "
+    "note about what the notes beside it amount to; when a read reports it has "
+    "fallen behind, read what changed and rewrite it."
 )
 
 
 class ReadResult(TypedDict):
     content: str
     hash: str  # sha256 hex; pass back as base_hash to write/edit
+    # Only on a summary.md that has fallen behind the notes beside it.
+    summary_stale: NotRequired[summaries.SummaryState]
 
 
 class Entry(TypedDict):
@@ -143,17 +147,25 @@ def build_server(config: BrainConfig) -> FastMCP:
         return sorted(entries, key=lambda e: e["name"])
 
     @mcp.tool(annotations=READ_ONLY)
-    def read(path: str) -> ReadResult:
+    async def read(path: str) -> ReadResult:
         """Read a file. Returns its `content` and the `hash` of that content —
         pass the hash back as `base_hash` to write (required to overwrite) or
-        edit (optional) to prove you're changing what you actually saw."""
+        edit (optional) to prove you're changing what you actually saw.
+
+        Reading a folder's summary.md also reports what has changed in that
+        folder since the summary was written."""
         target = confine(root, path)
         if not target.exists():
             raise ToolError(f"no such file '{path}'")
         if target.is_dir():
             raise ToolError(f"'{path}' is a directory, not a file; use list")
         content = read_text(target, path)
-        return {"content": content, "hash": contenthash.digest(content)}
+        result: ReadResult = {"content": content, "hash": contenthash.digest(content)}
+        if target.name == summaries.SUMMARY_NAME:
+            stale = await summaries.state(root, rel(root, target.parent), config)
+            if stale is not None:
+                result["summary_stale"] = stale
+        return result
 
     @mcp.tool(annotations=READ_ONLY)
     def search(query: str, path: str = "", limit: int = 50, regex: bool = False) -> list[Hit]:

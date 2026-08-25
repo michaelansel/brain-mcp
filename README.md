@@ -24,6 +24,9 @@ Environment variables:
 | `BRAIN_MCP_GIT_REMOTE` | no | (push disabled) | Git remote name or URL to push `HEAD` to after every commit, best-effort and non-blocking. Auth (SSH keys/config) must already work for `git` on this host outside of brain-mcp. |
 | `BRAIN_MCP_GIT_PUSH` | no | `true` | Set `false` to pause pushing without unsetting `BRAIN_MCP_GIT_REMOTE`. |
 | `BRAIN_MCP_READ_BEFORE_WRITE` | no | `true` | Require a prior `read` before `edit`, or before `write` overwrites an existing file (see "Read before write"). Set `false` to disable the gate. |
+| `BRAIN_MCP_SUMMARY_MIN_FILES` | no | `3` | Changed files that make a folder summary worth rewriting (see "Folder summaries"). |
+| `BRAIN_MCP_SUMMARY_MAX_AGE_DAYS` | no | `30` | Summary age that makes a rewrite worth asking for on its own. |
+| `BRAIN_MCP_SUMMARY_QUIET_MINUTES` | no | `60` | How recent a run of commits has to be to count as work still in progress, and so not worth interrupting. |
 
 ## Run
 
@@ -114,7 +117,7 @@ ever adds (it errors rather than overwriting an existing project).
 **Read**
 
 - `list(path="")` — one directory level. Entries: `name`, `path`, `type` (`file`|`dir`), `size` (bytes; 0 for dirs), `modified` (ISO 8601 UTC).
-- `read(path)` — `{"content", "hash"}`: the file's UTF-8 contents and their sha256. Pass the hash back as `base_hash` to `write`/`edit`.
+- `read(path)` — `{"content", "hash"}`: the file's UTF-8 contents and their sha256. Pass the hash back as `base_hash` to `write`/`edit`. Reading a `summary.md` may also carry `summary_stale` (see "Folder summaries").
 - `search(query, path="", limit=50, regex=False)` — ripgrep across the brain (pure-Python fallback when `rg` is absent). Hits: `path`, `line`, `text`. Literal by default.
 - `glob(pattern)` — paths matching a glob, e.g. `projects/**/*.md`.
 
@@ -128,8 +131,53 @@ ever adds (it errors rather than overwriting an existing project).
 **Projects**
 
 - `projects()` — every project with `name`, `status`, `path`, `repo_count`. Reads only frontmatter, so it stays fast with hundreds of projects.
-- `project(name)` — frontmatter, `project.md` prose, and a recursive file listing.
+- `project(name)` — frontmatter, `project.md` prose, and a recursive file listing. Also `summary_stale` if the project's summary has fallen behind, or `summary` explaining none has been written.
 - `project_create(name, summary, from_path=None)` — scaffold `projects/<name>/project.md`; with `from_path` (a note in `inbox/`), the note moves into the new project **in the same commit**.
+
+### Folder summaries
+
+A folder is summarised iff it contains `summary.md`. Presence is the opt-in —
+the server special-cases no directory, so `projects/` gets summaries because
+convention puts them there, and anything else gets one the moment someone
+writes one.
+
+`project.md` says what a project is *for*; `summary.md` is a state note (in the
+`agents.md` sense: carries `surveyed:`, goes stale, believed only as far as its
+date) about what the notes beside it currently amount to.
+
+Freshness is derived from git on every call and stored nowhere. The baseline is
+the commit that last touched the summary, so a hand edit re-baselines it and
+there is no bookkeeping to drift. The delta covers both commits made since and
+edits sitting uncommitted in the working tree — only this server commits, so a
+hand edit can otherwise sit unnoticed indefinitely.
+
+`read` on a summary, and `project(name)`, then carry:
+
+```jsonc
+"summary_stale": {
+  "since": "2026-08-01",
+  "changed": ["M projects/rocket/fuel.md", "A projects/rocket/engine.md"],
+  "refresh": "…read what changed, then rewrite the summary…"   // conditional
+}
+```
+
+The two halves are deliberately separate. `changed` is **information** and is
+always present once the summary is behind — an agent should know it is reading
+something N notes out of date. `refresh` is a **judgement call**, included only
+when the drift is worth interrupting for: a note was added or deleted (the
+folder's contents changed, not just wording), or `BRAIN_MCP_SUMMARY_MIN_FILES`
+files changed, or the summary is older than `BRAIN_MCP_SUMMARY_MAX_AGE_DAYS`.
+
+It is suppressed when every commit in the delta lands inside
+`BRAIN_MCP_SUMMARY_QUIET_MINUTES` — someone is mid-burst in that folder and
+already knows what they changed. Uncommitted changes never suppress: every
+agent write commits, so an uncommitted edit is a hand edit, which is exactly the
+drift worth surfacing.
+
+Nothing here calls a model. The server hands over the delta and the ask; the
+agent already in the loop does the work and writes the result back with
+`base_hash`. Ignoring the request breaks nothing — the summary simply stays
+stale and says so.
 
 ### Read before write
 
@@ -190,6 +238,9 @@ via brain-mcp
 - A `project.md` with missing or malformed frontmatter still appears in `projects()` with `status: "unknown"`; `project()` on it raises an actionable error.
 - Project names must be plain directory names (no `/`, no leading `.`).
 - Deleting an untracked (never-committed) file is an error rather than a silent `rm` — the file is left alone.
+- Folder summaries add no tools: `read` and `project()` gained response fields instead. The access path for a summary is the path it lives at.
+- `project_create` does **not** scaffold a `summary.md` — a brand-new project has nothing to summarise, and `agents.md` says not to scaffold empties. `project()` reports the absence instead, where someone is orienting on the project anyway.
+- A `summary.md` that exists but was never committed reports nothing: there is no point in history to measure drift from, and whoever just wrote it has read the folder.
 
 ## Development
 
@@ -201,4 +252,6 @@ uv run ruff format .
 
 Out of scope by design: OAuth, deployment, backlinks/tags/indexes beyond
 ripgrep, filesystem watching, and delegated interrogation (`ask()`) — the
-tool-module layout leaves a clean seam for that last one.
+tool-module layout leaves a clean seam for that last one. The server never
+calls a model: work that needs judgement is handed to the agent already in
+the loop, which is what keeps the containment guarantees above true.

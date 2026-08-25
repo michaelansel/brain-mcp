@@ -29,8 +29,10 @@ async def main() -> None:
     async with Client(transport) as client:
         show("list: brain root", unwrap(await client.call_tool("list", {})))
 
-        result = await client.call_tool("read", {"path": "inbox/rocket-idea.md"})
-        show("read: inbox/rocket-idea.md", result.data)
+        show(
+            "read: inbox/rocket-idea.md",
+            unwrap(await client.call_tool("read", {"path": "inbox/rocket-idea.md"})),
+        )
 
         show(
             "project_create: fork 'rocket' from the inbox note (one commit)",
@@ -78,7 +80,40 @@ async def main() -> None:
 
         show("search: 'fuel'", unwrap(await client.call_tool("search", {"query": "fuel"})))
         show("projects", unwrap(await client.call_tool("projects", {})))
-        show("project: rocket", unwrap(await client.call_tool("project", {"name": "rocket"})))
+        show(
+            "project: rocket (no summary yet)",
+            unwrap(await client.call_tool("project", {"name": "rocket"})),
+        )
+
+        show(
+            "write: projects/rocket/summary.md",
+            unwrap(
+                await client.call_tool(
+                    "write",
+                    {
+                        "path": "projects/rocket/summary.md",
+                        "content": (
+                            "---\ntitle: rocket\nsurveyed: 2026-08-24\n"
+                            "source: projects/rocket\n---\n\n"
+                            "Sounding rocket. Airframe sketched, motor not ordered.\n"
+                        ),
+                    },
+                )
+            ),
+        )
+        show(
+            "read: summary.md while current — nothing to report",
+            unwrap(await client.call_tool("read", {"path": "projects/rocket/summary.md"})),
+        )
+
+        await client.call_tool(
+            "write",
+            {"path": "projects/rocket/motor.md", "content": "# Motor\n\nOrdered.\n"},
+        )
+        show(
+            "read: summary.md after a note arrives — the delta, and the ask",
+            unwrap(await client.call_tool("read", {"path": "projects/rocket/summary.md"})),
+        )
 
 
 if __name__ == "__main__":

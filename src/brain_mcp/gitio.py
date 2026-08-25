@@ -121,3 +121,57 @@ async def _push_head(root: Path) -> None:
                 )
     except Exception:
         logger.exception("unexpected error pushing to %s", remote)
+
+
+# --- history queries (read-only; no lock, nothing staged) ---
+
+
+async def last_commit_touching(root: Path, path: str) -> tuple[str, str] | None:
+    """(sha, ISO date) of the newest commit touching `path`, or None if the
+    path has no commit history — it was created by hand and never committed."""
+    proc = await run_git(root, "log", "-1", "--format=%H %cI", "--", path, check=False)
+    out = proc.stdout.strip()
+    if proc.returncode != 0 or not out:
+        return None
+    sha, _, when = out.partition(" ")
+    return sha, when
+
+
+async def changed_since(root: Path, sha: str, pathspec: str) -> list[str]:
+    """Paths under `pathspec` changed since `sha`, as "<status> <path>".
+
+    Covers both halves of how the brain changes: commits made since `sha`,
+    and edits sitting in the working tree. The user edits these files in his
+    own editor and only this server commits, so a hand edit can stay
+    uncommitted indefinitely — a diff of commits alone would miss it.
+
+    `--no-renames` keeps a rename as a D/A pair, which is what a summary
+    needs to hear: a note left and another arrived.
+    """
+    committed = await run_git(
+        root, "diff", "--name-status", "--no-renames", sha, "HEAD", "--", pathspec
+    )
+    working = await run_git(root, "status", "--porcelain", "--", pathspec)
+
+    changes: dict[str, str] = {}
+    for line in committed.stdout.splitlines():
+        status, _, path = line.partition("\t")
+        if path:
+            changes[path] = status.strip()[:1]
+    for line in working.stdout.splitlines():
+        # porcelain v1: XY<space>path, where X is staged and Y is unstaged.
+        status, path = line[:2], line[3:].strip().strip('"')
+        if not path:
+            continue
+        code = status.replace(" ", "").replace("?", "A")[:1]
+        # A working-tree change is newer than anything in the diff, so it wins.
+        changes[path] = code
+    return sorted(f"{code} {path}" for path, code in changes.items())
+
+
+async def commit_times_since(root: Path, sha: str, pathspec: str) -> list[int]:
+    """Unix timestamps of commits after `sha` touching `pathspec`, newest first."""
+    proc = await run_git(root, "log", "--format=%ct", f"{sha}..HEAD", "--", pathspec, check=False)
+    if proc.returncode != 0:
+        return []
+    return [int(line) for line in proc.stdout.split()]

@@ -13,7 +13,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from brain_mcp import frontmatter
+from brain_mcp import frontmatter, summaries
 from brain_mcp.config import BrainConfig
 from brain_mcp.errors import ToolError, git_guard
 from brain_mcp.gitio import commit_message, commit_paths, run_git, write_lock
@@ -59,9 +59,13 @@ def register(mcp: FastMCP, config: BrainConfig) -> None:
         return out
 
     @mcp.tool(annotations=READ_ONLY)
-    def project(name: str) -> dict[str, Any]:
-        """One project in full: frontmatter, project.md prose, and a
-        recursive file listing."""
+    async def project(name: str) -> dict[str, Any]:
+        """One project in full: frontmatter, project.md prose, a recursive
+        file listing, and the state of its summary.
+
+        project.md says what the project is *for*; summary.md says what its
+        notes currently amount to. This reports whether that summary has
+        fallen behind, or that none has been written yet."""
         pdir = _project_dir(root, name)
         if not pdir.is_dir():
             available = ", ".join(p.name for p in sorted((root / PROJECTS_DIR).glob("*/")))
@@ -79,13 +83,29 @@ def register(mcp: FastMCP, config: BrainConfig) -> None:
         for dirpath, dirnames, filenames in os.walk(pdir):
             dirnames[:] = [d for d in dirnames if d != ".git"]
             files.extend((Path(dirpath) / f).relative_to(root).as_posix() for f in filenames)
-        return {
+        folder = f"{PROJECTS_DIR}/{name}"
+        out: dict[str, Any] = {
             "name": name,
-            "path": f"{PROJECTS_DIR}/{name}",
+            "path": folder,
             "frontmatter": meta,
             "prose": body.strip(),
             "files": sorted(files),
         }
+        summary = pdir / summaries.SUMMARY_NAME
+        if not summary.is_file():
+            # Not scaffolded at creation — an empty project has nothing to
+            # summarise, and agents.md says not to scaffold empties. Say so
+            # here instead, where someone is orienting on the project.
+            out["summary"] = (
+                f"none written. If this project has notes worth orienting from, "
+                f"write {folder}/{summaries.SUMMARY_NAME} as a state note "
+                f"covering what they amount to."
+            )
+        else:
+            stale = await summaries.state(root, folder, config)
+            if stale is not None:
+                out["summary_stale"] = stale
+        return out
 
     @mcp.tool(annotations=ADDITIVE_ONLY)
     @git_guard
