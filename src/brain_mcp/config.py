@@ -30,6 +30,9 @@ class BrainConfig:
     summary_min_files: int = 3  # changed files that make drift worth mentioning
     summary_max_age_days: int = 30  # matches the stale-state threshold in weekly-review.md
     summary_quiet_minutes: int = 60  # don't interrupt a burst of work still in progress
+    # Read tracking. Lives outside the brain; see attention.py.
+    state_dir: Path | None = None  # None means the XDG default
+    attention_days: int = 90  # how long a read event is kept
 
 
 def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
@@ -94,6 +97,10 @@ def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
         summary_min_files=_number(env, "BRAIN_MCP_SUMMARY_MIN_FILES", 3),
         summary_max_age_days=_number(env, "BRAIN_MCP_SUMMARY_MAX_AGE_DAYS", 30),
         summary_quiet_minutes=_number(env, "BRAIN_MCP_SUMMARY_QUIET_MINUTES", 60),
+        state_dir=Path(state_raw).expanduser()
+        if (state_raw := env.get("BRAIN_MCP_STATE_DIR"))
+        else None,
+        attention_days=_number(env, "BRAIN_MCP_ATTENTION_DAYS", 90),
     )
 
 

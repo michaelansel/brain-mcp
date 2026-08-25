@@ -27,6 +27,8 @@ Environment variables:
 | `BRAIN_MCP_SUMMARY_MIN_FILES` | no | `3` | Changed files that make a folder summary worth rewriting (see "Folder summaries"). |
 | `BRAIN_MCP_SUMMARY_MAX_AGE_DAYS` | no | `30` | Summary age that makes a rewrite worth asking for on its own. |
 | `BRAIN_MCP_SUMMARY_QUIET_MINUTES` | no | `60` | How recent a run of commits has to be to count as work still in progress, and so not worth interrupting. |
+| `BRAIN_MCP_STATE_DIR` | no | `$XDG_STATE_HOME/brain-mcp` | Where read tracking lives. Outside the brain by design (see "Folder summaries"). |
+| `BRAIN_MCP_ATTENTION_DAYS` | no | `90` | How long a read event is kept before pruning. |
 
 ## Run
 
@@ -130,7 +132,7 @@ ever adds (it errors rather than overwriting an existing project).
 
 **Projects**
 
-- `projects()` — every project with `name`, `status`, `path`, `repo_count`. Reads only frontmatter, so it stays fast with hundreds of projects.
+- `projects(summaries_too=False)` — every project with `name`, `status`, `path`, `repo_count`. Reads only frontmatter, so it stays fast with hundreds of projects. `summaries_too` adds per-project summary staleness and read counts — the list of what is worth refreshing, in one call — at a couple of git calls per project, which is why it is opt-in.
 - `project(name)` — frontmatter, `project.md` prose, and a recursive file listing. Also `summary_stale` if the project's summary has fallen behind, or `summary` explaining none has been written.
 - `project_create(name, summary, from_path=None)` — scaffold `projects/<name>/project.md`; with `from_path` (a note in `inbox/`), the note moves into the new project **in the same commit**.
 
@@ -145,19 +147,54 @@ writes one.
 `agents.md` sense: carries `surveyed:`, goes stale, believed only as far as its
 date) about what the notes beside it currently amount to.
 
-Freshness is derived from git on every call and stored nowhere. The baseline is
-the commit that last touched the summary, so a hand edit re-baselines it and
-there is no bookkeeping to drift. The delta covers both commits made since and
-edits sitting uncommitted in the working tree — only this server commits, so a
-hand edit can otherwise sit unnoticed indefinitely.
+#### What a summary covers
 
-`read` on a summary, and `project(name)`, then carry:
+A summary states how much it accounts for, in a `covers:` line naming a commit:
+
+```yaml
+---
+title: rocket
+surveyed: 2026-08-25       # the human line, per the state-note convention
+source: projects/rocket
+covers: fb9ced4a…          # what this summary accounts for
+---
+```
+
+That claim, not the file's own history, is what freshness is measured from — so
+**editing the file and asserting coverage are separate acts**. Without this,
+writing the summary at all advanced the baseline to HEAD and marked every
+pending change integrated, whether it had been read or not: an agent that
+skimmed one relevant note and reworded a paragraph silently absorbed the rest,
+and a human fixing a typo absorbed everything. Partial work was lossy. Now it is
+merely incomplete — a refresher that did not do the whole job leaves `covers:`
+alone, and the drift stays flagged for whoever comes next. That is also why
+there is no partial-credit mechanism: either you accounted for all of it and say
+so, or you don't touch the line.
+
+A summary that states no `covers:`, or names a commit that is not behind HEAD,
+**accounts for nothing** — every note beside it is reported as unaccounted-for
+until a refresh records a claim. There is no fallback to "the last commit that
+touched this file", because that is exactly the lossy behaviour above.
+
+The agent never derives the sha: the refresh request hands it current HEAD to
+record, the same shape as `base_hash`. Every way of getting it wrong fails safe
+— a hallucinated sha does not resolve, an old one does not advance coverage, and
+a sha newer than what was integrated cannot be produced, since the only
+resolvable shas an agent holds are the one it was given or older. The failure
+mode is always "stays stale", never "falsely fresh".
+
+The delta covers both commits made since and edits sitting uncommitted in the
+working tree — only this server commits, so a hand edit can otherwise sit
+unnoticed indefinitely.
+
+#### What a read reports
 
 ```jsonc
 "summary_stale": {
   "since": "2026-08-01",
   "changed": ["M projects/rocket/fuel.md", "A projects/rocket/engine.md"],
-  "refresh": "…read what changed, then rewrite the summary…"   // conditional
+  "coverage": "…why this summary's claim could not be used…",  // only when abnormal
+  "refresh": "…account for all of them, set covers: <sha>…"     // conditional
 }
 ```
 
@@ -174,10 +211,37 @@ already knows what they changed. Uncommitted changes never suppress: every
 agent write commits, so an uncommitted edit is a hand edit, which is exactly the
 drift worth surfacing.
 
+The request asks for the work to be handed to a subagent where one is
+available. The alternative — inlining the changed notes into the response — is
+backwards once you have delegation: it spends the context of the agent that is
+about to hand the job off. The subagent reads the notes itself, in its own
+budget.
+
 Nothing here calls a model. The server hands over the delta and the ask; the
 agent already in the loop does the work and writes the result back with
 `base_hash`. Ignoring the request breaks nothing — the summary simply stays
 stale and says so.
+
+#### Read tracking
+
+A summary read every other day and stale matters more than one nobody has
+opened. git records every write to the brain and cannot see a single read, so
+that signal exists nowhere else — which is the whole reason this store exists.
+
+It is a sqlite event log, one row per read, pruned past
+`BRAIN_MCP_ATTENTION_DAYS`. Keeping only a last-read-per-folder would mean
+deciding at write time which reads are interesting, baked into a place it could
+never be revisited; with the events kept, frequency is a signal and later
+questions need no migration. `read` of a summary and `project(name)` each record
+one; `projects()` records nothing, because it names no folder anyone is
+orienting on and counting it would make everything look freshly attended.
+
+It lives **outside the brain** on purpose: anything written inside would be a
+commit, a push, and noise in the very activity count the weekly review uses to
+notice when it has become the only thing still writing. This is a deliberate,
+bounded exception to "the server never caches" — that rule protects brain
+content, and no brain content is cached here. Nothing in it raises: losing a
+read event costs a little signal, while failing a `read` would cost the brain.
 
 ### Read before write
 

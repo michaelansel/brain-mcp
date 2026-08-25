@@ -92,6 +92,9 @@ def http_server(brain):
         "BRAIN_ROOT": str(brain),
         "BRAIN_MCP_TOKEN": "test-token",
         "BRAIN_MCP_PORT": str(port),
+        # A real subprocess reads the real environment, so without this it
+        # writes read events into the user's own ~/.local/state.
+        "BRAIN_MCP_STATE_DIR": str(brain.parent / "state"),
     }
     proc = subprocess.Popen(
         [sys.executable, "-m", "brain_mcp.cli", "--transport", "http"],

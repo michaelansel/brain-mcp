@@ -60,8 +60,10 @@ def brain(tmp_path):
 
 
 @pytest.fixture
-def config(brain):
-    return BrainConfig(root=brain.resolve())
+def config(brain, tmp_path):
+    # state_dir must never default here: the real one is the user's own
+    # ~/.local/state, and a test run would write read events into it.
+    return BrainConfig(root=brain.resolve(), state_dir=tmp_path / "state")
 
 
 @pytest.fixture

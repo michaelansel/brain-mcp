@@ -10,10 +10,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# A commit-ish this server will hand to git. Anything else is refused before
+# it reaches a subprocess argument.
+_SHA_RE = re.compile(r"[0-9a-fA-F]{4,40}")
 
 # One lock for every mutate-and-commit; concurrent writes must not interleave.
 write_lock = asyncio.Lock()
@@ -137,6 +142,27 @@ async def last_commit_touching(root: Path, path: str) -> tuple[str, str] | None:
     return sha, when
 
 
+async def is_usable_baseline(root: Path, sha: str) -> bool:
+    """Whether `sha` names a commit this history can be measured from.
+
+    One call answers both ways it can be unusable: `merge-base --is-ancestor`
+    exits non-zero for a sha git cannot resolve *and* for a real commit that
+    is not behind HEAD. A summary claiming either is a summary whose coverage
+    cannot be trusted, and both want the same response.
+    """
+    if not _SHA_RE.fullmatch(sha):
+        return False
+    proc = await run_git(root, "merge-base", "--is-ancestor", sha, "HEAD", check=False)
+    return proc.returncode == 0
+
+
+async def commit_date(root: Path, sha: str) -> str:
+    """The ISO commit date of `sha`, or "" if it cannot be read. Screen the
+    sha with is_usable_baseline first."""
+    proc = await run_git(root, "log", "-1", "--format=%cI", sha, check=False)
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 async def changed_since(root: Path, sha: str, pathspec: str) -> list[str]:
     """Paths under `pathspec` changed since `sha`, as "<status> <path>".
 
@@ -148,8 +174,19 @@ async def changed_since(root: Path, sha: str, pathspec: str) -> list[str]:
     `--no-renames` keeps a rename as a D/A pair, which is what a summary
     needs to hear: a note left and another arrived.
     """
+    # check=False: an unresolvable sha exits non-zero, and `read` carries no
+    # git_guard, so a raised GitError would escape the tool as a raw traceback.
+    # Callers screen the sha with is_usable_baseline first; this is the belt.
     committed = await run_git(
-        root, "diff", "--name-status", "--no-renames", sha, "HEAD", "--", pathspec
+        root,
+        "diff",
+        "--name-status",
+        "--no-renames",
+        sha,
+        "HEAD",
+        "--",
+        pathspec,
+        check=False,
     )
     working = await run_git(root, "status", "--porcelain", "--", pathspec)
 

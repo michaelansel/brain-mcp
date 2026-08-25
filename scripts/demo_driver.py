@@ -80,10 +80,8 @@ async def main() -> None:
 
         show("search: 'fuel'", unwrap(await client.call_tool("search", {"query": "fuel"})))
         show("projects", unwrap(await client.call_tool("projects", {})))
-        show(
-            "project: rocket (no summary yet)",
-            unwrap(await client.call_tool("project", {"name": "rocket"})),
-        )
+        rocket = unwrap(await client.call_tool("project", {"name": "rocket"}))
+        show("project: rocket (no summary yet — and the sha to claim)", rocket)
 
         show(
             "write: projects/rocket/summary.md",
@@ -93,8 +91,12 @@ async def main() -> None:
                     {
                         "path": "projects/rocket/summary.md",
                         "content": (
-                            "---\ntitle: rocket\nsurveyed: 2026-08-24\n"
-                            "source: projects/rocket\n---\n\n"
+                            "---\ntitle: rocket\nsurveyed: 2026-08-25\n"
+                            "source: projects/rocket\n"
+                            # What this summary accounts for. Handed over by
+                            # the refresh request; here, the head of the brain
+                            # as the summary was written.
+                            f"covers: {rocket['summary']['covers']}\n---\n\n"
                             "Sounding rocket. Airframe sketched, motor not ordered.\n"
                         ),
                     },
@@ -113,6 +115,12 @@ async def main() -> None:
         show(
             "read: summary.md after a note arrives — the delta, and the ask",
             unwrap(await client.call_tool("read", {"path": "projects/rocket/summary.md"})),
+        )
+
+        show(
+            "projects(summaries_too=True): what is worth refreshing, and how "
+            "much attention each has had",
+            unwrap(await client.call_tool("projects", {"summaries_too": True})),
         )
 
 

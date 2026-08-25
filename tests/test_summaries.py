@@ -10,7 +10,22 @@ import pytest
 from fastmcp import Client
 
 from brain_mcp.server import build_server
-from tests.conftest import commit_all, data, git
+from tests.conftest import commit_all, data, git, head_sha
+
+
+def write_summary(brain, covers=..., body="Fuel picked.\n"):
+    """Write the summary claiming coverage through `covers`, then commit it.
+
+    The default is current HEAD — the sha a refresher would have been handed.
+    Pass None to write one that claims nothing.
+    """
+    if covers is ...:
+        covers = head_sha(brain)
+    front = "---\ntitle: rocket\nsurveyed: 2026-08-01\n"
+    if covers is not None:
+        front += f"covers: {covers}\n"
+    (brain / "projects" / "rocket" / "summary.md").write_text(front + "---\n\n" + body)
+    commit_all(brain, "write summary")
 
 
 @pytest.fixture
@@ -21,10 +36,7 @@ def brain(brain):
     (proj / "project.md").write_text("---\nname: rocket\nstatus: active\n---\n\n# rocket\n\nFly.\n")
     (proj / "fuel.md").write_text("# Fuel\n\nKerosene.\n")
     commit_all(brain, "seed project")
-    (proj / "summary.md").write_text(
-        "---\ntitle: rocket\nsurveyed: 2026-08-01\n---\n\nFuel picked.\n"
-    )
-    commit_all(brain, "write summary")
+    write_summary(brain)
     return brain
 
 
@@ -107,17 +119,110 @@ async def test_changes_outside_the_folder_are_ignored(client, brain):
     assert "summary_stale" not in await read_summary(client)
 
 
-async def test_editing_the_summary_rebaselines_it(client, brain):
+async def test_editing_the_summary_does_not_claim_coverage(client, brain):
+    """The whole point. Rewriting the file without advancing `covers:` leaves
+    the drift flagged — before this, writing the summary at all silently
+    marked every pending change integrated."""
+    touch(brain, "projects/rocket/fuel.md", "# Fuel\n\nHydrogen.\n", "switch fuel")
+    write_summary(brain, covers=None, body="Half-rewritten.\n")
+    stale = (await read_summary(client))["summary_stale"]
+    # Not absorbed. Claiming nothing, it now accounts for nothing at all.
+    assert "A projects/rocket/fuel.md" in stale["changed"]
+
+
+async def test_a_typo_fix_does_not_absorb_pending_changes(client, brain):
+    """A human tidying a word in the summary is not a claim about the notes."""
+    touch(brain, "projects/rocket/fuel.md", "# Fuel\n\nHydrogen.\n", "switch fuel")
+    covers = data(await client.call_tool("read", {"path": "projects/rocket/summary.md"}))
+    stale_before = covers["summary_stale"]["changed"]
+    await client.call_tool(
+        "edit",
+        {
+            "path": "projects/rocket/summary.md",
+            "old_string": "Fuel picked.",
+            "new_string": "Fuel chosen.",
+            "base_hash": covers["hash"],
+        },
+    )
+    assert (await read_summary(client))["summary_stale"]["changed"] == stale_before
+
+
+async def test_claiming_current_head_clears_the_delta(client, brain):
+    """The refresher records the sha it was handed, and the delta closes."""
     touch(brain, "projects/rocket/fuel.md", "# Fuel\n\nHydrogen.\n", "switch fuel")
     assert "summary_stale" in await read_summary(client)
-    touch(brain, "projects/rocket/summary.md", "Rewritten.\n", "refresh summary")
+    write_summary(brain, body="Hydrogen now.\n")  # covers=HEAD
     assert "summary_stale" not in await read_summary(client)
+
+
+async def test_an_old_claim_leaves_the_delta_open(client, brain):
+    """Copying the previous `covers:` forward integrates nothing, and says so."""
+    stale_sha = head_sha(brain)
+    touch(brain, "projects/rocket/fuel.md", "# Fuel\n\nHydrogen.\n", "switch fuel")
+    write_summary(brain, covers=stale_sha, body="Unchanged really.\n")
+    changed = (await read_summary(client))["summary_stale"]["changed"]
+    assert changed == ["M projects/rocket/fuel.md"]
+
+
+# --- coverage that cannot be trusted ---
+
+
+async def test_a_summary_claiming_nothing_says_so_and_is_asked(cold_client, brain):
+    write_summary(brain, covers=None)
+    touch(brain, "projects/rocket/fuel.md", "# Fuel\n\nHydrogen.\n", "switch fuel")
+    stale = (await read_summary(cold_client))["summary_stale"]
+    assert "does not say what it covers" in stale["coverage"]
+    assert "refresh" in stale  # one edit alone would not ask; unknown coverage does
+
+
+async def test_a_hallucinated_sha_is_not_believed(cold_client, brain):
+    """The failure mode that matters: an invented sha must leave the summary
+    flagged, never mark it fresh."""
+    write_summary(brain, covers="0123456789abcdef0123456789abcdef01234567")
+    touch(brain, "projects/rocket/fuel.md", "# Fuel\n\nHydrogen.\n", "switch fuel")
+    stale = (await read_summary(cold_client))["summary_stale"]
+    assert "not a commit behind HEAD" in stale["coverage"]
+    assert "A projects/rocket/fuel.md" in stale["changed"]
+
+
+async def test_a_nonsense_covers_value_is_not_believed(cold_client, brain):
+    write_summary(brain, covers="the whole thing, honest")
+    touch(brain, "projects/rocket/fuel.md", "# Fuel\n\nHydrogen.\n", "switch fuel")
+    assert "coverage" in (await read_summary(cold_client))["summary_stale"]
+
+
+async def test_a_commit_that_is_not_an_ancestor_is_not_believed(cold_client, brain):
+    """A real sha from somewhere else in history is still not a baseline."""
+    git(brain, "checkout", "-q", "-b", "side")
+    touch(brain, "projects/rocket/side.md", "# Side\n", "side note")
+    orphan = head_sha(brain)
+    git(brain, "checkout", "-q", "main")
+    write_summary(brain, covers=orphan)
+    touch(brain, "projects/rocket/fuel.md", "# Fuel\n\nHydrogen.\n", "switch fuel")
+    assert "coverage" in (await read_summary(cold_client))["summary_stale"]
+
+
+async def test_the_refresh_names_the_sha_to_record(cold_client, brain):
+    touch(brain, "projects/rocket/engine.md", "# Engine\n", "add engine")
+    stale = (await read_summary(cold_client))["summary_stale"]
+    assert f"covers: {head_sha(brain)}" in stale["refresh"]
+    assert "not only the ones relevant" in stale["refresh"]
 
 
 async def test_summary_excludes_its_own_uncommitted_edit(client, brain):
-    """Revising the summary is the author at work, not drift."""
-    (brain / "projects" / "rocket" / "summary.md").write_text("Half-rewritten.\n")
+    """Revising the summary is the author at work, not drift — so long as the
+    revision keeps its coverage claim."""
+    path = brain / "projects" / "rocket" / "summary.md"
+    path.write_text(path.read_text().replace("Fuel picked.", "Half-rewritten."))
     assert "summary_stale" not in await read_summary(client)
+
+
+async def test_a_revision_that_drops_the_claim_accounts_for_nothing(client, brain):
+    """Wiping the frontmatter is not a tidy-up: the summary no longer says
+    what it covers, so it covers nothing."""
+    (brain / "projects" / "rocket" / "summary.md").write_text("Half-rewritten.\n")
+    stale = (await read_summary(client))["summary_stale"]
+    assert "does not say what it covers" in stale["coverage"]
 
 
 # --- whether a rewrite is asked for ---
@@ -144,7 +249,7 @@ async def test_enough_edits_ask_for_a_rewrite(cold_client, brain, config):
     for i in range(config.summary_min_files):
         (brain / "projects" / "rocket" / f"part{i}.md").write_text("seed\n")
     commit_all(brain, "seed parts")
-    touch(brain, "projects/rocket/summary.md", "Rewritten.\n", "refresh")
+    write_summary(brain, body="Rewritten.\n")
     for i in range(config.summary_min_files):
         touch(brain, f"projects/rocket/part{i}.md", f"edited {i}\n", f"edit {i}")
     stale = (await read_summary(cold_client))["summary_stale"]
@@ -199,7 +304,10 @@ async def test_project_reports_a_missing_summary(client, brain):
     commit_all(brain, "drop summary")
     result = data(await client.call_tool("project", {"name": "rocket"}))
     assert "summary_stale" not in result
-    assert "none written" in result["summary"]
+    assert result["summary"]["state"] == "none written"
+    # The sha to claim comes with it: without one the first summary written
+    # would cover nothing and report itself stale the moment it landed.
+    assert result["summary"]["covers"] == head_sha(brain)
 
 
 async def test_project_stays_quiet_when_current(client, brain):

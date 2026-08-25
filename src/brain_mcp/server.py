@@ -14,6 +14,7 @@ from typing import NotRequired, TypedDict
 
 from fastmcp import FastMCP
 
+from brain_mcp import attention as attention_module
 from brain_mcp import contenthash, searchio, summaries
 from brain_mcp import projects as projects_module
 from brain_mcp.auth import build_auth
@@ -81,6 +82,9 @@ class EditResult(MutationResult):
 def build_server(config: BrainConfig) -> FastMCP:
     root = config.root
     configure_push(config.git_remote if config.git_push else None)
+    attention = attention_module.Attention(
+        config.state_dir or attention_module.default_state_dir(), config.attention_days
+    )
     mcp = FastMCP(name="brain-mcp", auth=build_auth(config), instructions=INSTRUCTIONS)
 
     # --- read-before-write ---
@@ -162,7 +166,9 @@ def build_server(config: BrainConfig) -> FastMCP:
         content = read_text(target, path)
         result: ReadResult = {"content": content, "hash": contenthash.digest(content)}
         if target.name == summaries.SUMMARY_NAME:
-            stale = await summaries.state(root, rel(root, target.parent), config)
+            folder = rel(root, target.parent)
+            await attention.record(folder, "read")
+            stale = await summaries.state(root, folder, config)
             if stale is not None:
                 result["summary_stale"] = stale
         return result
@@ -366,5 +372,5 @@ def build_server(config: BrainConfig) -> FastMCP:
             prune_empty_dirs(root, target.parent)
         return {"path": r, "commit": sha, "message": msg.splitlines()[0]}
 
-    projects_module.register(mcp, config)
+    projects_module.register(mcp, config, attention)
     return mcp

@@ -14,9 +14,10 @@ from typing import Any
 from fastmcp import FastMCP
 
 from brain_mcp import frontmatter, summaries
+from brain_mcp.attention import Attention
 from brain_mcp.config import BrainConfig
 from brain_mcp.errors import ToolError, git_guard
-from brain_mcp.gitio import commit_message, commit_paths, run_git, write_lock
+from brain_mcp.gitio import commit_message, commit_paths, head_sha, run_git, write_lock
 from brain_mcp.pathsafe import confine, rel
 
 PROJECTS_DIR = "projects"
@@ -32,13 +33,20 @@ ADDITIVE_ONLY = {
 }
 
 
-def register(mcp: FastMCP, config: BrainConfig) -> None:
+def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
     root = config.root
 
     @mcp.tool(annotations=READ_ONLY)
-    def projects() -> list[dict[str, Any]]:
+    async def projects(summaries_too: bool = False) -> list[dict[str, Any]]:
         """Every project: name, status, path, repo count. Reads frontmatter
-        only, so it stays fast with hundreds of projects."""
+        only, so it stays fast with hundreds of projects.
+
+        `summaries_too` adds, per project, how far its summary has fallen
+        behind and how much attention it has had — the list of what is worth
+        refreshing, in one call. It costs a couple of git calls per project,
+        which is why it is opt-in. Surveying this way records no reads: it
+        names no single folder anyone is orienting on, and counting it would
+        make everything look freshly attended."""
         pdir = root / PROJECTS_DIR
         if not pdir.is_dir():
             return []
@@ -56,6 +64,11 @@ def register(mcp: FastMCP, config: BrainConfig) -> None:
                     "repo_count": len(repos) if isinstance(repos, list) else 0,
                 }
             )
+        if summaries_too:
+            counts = await attention.counts([p["path"] for p in out])
+            for item in out:
+                item.update(counts.get(item["path"], {"reads": 0}))
+                item.update(await _summary_fields(root, item["path"], config))
         return out
 
     @mcp.tool(annotations=READ_ONLY)
@@ -91,20 +104,8 @@ def register(mcp: FastMCP, config: BrainConfig) -> None:
             "prose": body.strip(),
             "files": sorted(files),
         }
-        summary = pdir / summaries.SUMMARY_NAME
-        if not summary.is_file():
-            # Not scaffolded at creation — an empty project has nothing to
-            # summarise, and agents.md says not to scaffold empties. Say so
-            # here instead, where someone is orienting on the project.
-            out["summary"] = (
-                f"none written. If this project has notes worth orienting from, "
-                f"write {folder}/{summaries.SUMMARY_NAME} as a state note "
-                f"covering what they amount to."
-            )
-        else:
-            stale = await summaries.state(root, folder, config)
-            if stale is not None:
-                out["summary_stale"] = stale
+        await attention.record(folder, "project")
+        out.update(await _summary_fields(root, folder, config))
         return out
 
     @mcp.tool(annotations=ADDITIVE_ONLY)
@@ -153,6 +154,31 @@ def register(mcp: FastMCP, config: BrainConfig) -> None:
             msg = commit_message("project_create", f"{PROJECTS_DIR}/{name}")
             sha = await commit_paths(root, commit_targets, msg)
         return {"path": f"{PROJECTS_DIR}/{name}", "commit": sha, "message": msg.splitlines()[0]}
+
+
+async def _summary_fields(root: Path, folder: str, config: BrainConfig) -> dict[str, Any]:
+    """What to say about a folder's summary: how far behind it is, or that
+    there is none."""
+    if not (root / folder / summaries.SUMMARY_NAME).is_file():
+        # Not scaffolded at creation — an empty project has nothing to
+        # summarise, and agents.md says not to scaffold empties. Say so here
+        # instead, where someone is orienting on the project, and hand over
+        # the sha to claim: otherwise the first summary written has no way to
+        # know what it covers and reports itself stale the moment it lands.
+        return {
+            "summary": {
+                "state": "none written",
+                "write": f"{folder}/{summaries.SUMMARY_NAME}",
+                "covers": await head_sha(root) or "",
+                "how": (
+                    "If this project has notes worth orienting from, write that "
+                    "file as a state note covering what they amount to, with the "
+                    "`covers:` sha above in its frontmatter."
+                ),
+            }
+        }
+    stale = await summaries.state(root, folder, config)
+    return {"summary_stale": stale} if stale is not None else {}
 
 
 def _project_dir(root: Path, name: str) -> Path:
