@@ -177,22 +177,42 @@ def test_rel_roundtrip(root):
 # --- pruning empty directories ---
 
 
-def test_prune_removes_a_chain_of_empty_dirs(tmp_path):
+def test_prune_walks_up_through_empty_ancestors(tmp_path):
     root = tmp_path / "brain"
-    deep = root / "a" / "b" / "c"
-    deep.mkdir(parents=True)
-    assert prune_empty_dirs(root, deep) == ["a/b/c", "a/b"]
-    assert (root / "a").is_dir()  # a direct child of the root is never pruned
+    (root / "a" / "b" / "c").mkdir(parents=True)
+    assert prune_empty_dirs(root, root / "a" / "b" / "c") == ["a/b/c", "a/b"]
     assert not (root / "a" / "b").exists()
 
 
-def test_prune_stops_at_a_non_empty_dir(tmp_path):
+def test_prune_stops_at_the_first_dir_holding_anything(tmp_path):
     root = tmp_path / "brain"
-    deep = root / "a" / "b" / "c"
-    deep.mkdir(parents=True)
-    (root / "a" / "keep.md").write_text("x")
-    assert prune_empty_dirs(root, deep) == ["a/b/c", "a/b"]
-    assert (root / "a").is_dir()
+    (root / "a" / "b" / "c").mkdir(parents=True)
+    (root / "a" / "b" / "keep.md").write_text("x")
+    assert prune_empty_dirs(root, root / "a" / "b" / "c") == ["a/b/c"]
+    assert (root / "a" / "b" / "keep.md").read_text() == "x"
+
+
+def test_prune_refuses_a_dir_holding_a_file(tmp_path):
+    root = tmp_path / "brain"
+    (root / "a" / "b").mkdir(parents=True)
+    (root / "a" / "b" / "note.md").write_text("x")
+    assert prune_empty_dirs(root, root / "a" / "b") == []
+    assert (root / "a" / "b" / "note.md").read_text() == "x"
+
+
+def test_prune_refuses_a_dir_holding_a_hidden_file(tmp_path):
+    root = tmp_path / "brain"
+    (root / "a" / "b").mkdir(parents=True)
+    (root / "a" / "b" / ".keep").write_text("x")
+    assert prune_empty_dirs(root, root / "a" / "b") == []
+    assert (root / "a" / "b" / ".keep").exists()
+
+
+def test_prune_leaves_the_skeleton_alone(tmp_path):
+    root = tmp_path / "brain"
+    (root / "inbox").mkdir(parents=True)
+    assert prune_empty_dirs(root, root / "inbox") == []
+    assert (root / "inbox").is_dir()
 
 
 def test_prune_never_removes_the_root(tmp_path):
@@ -200,11 +220,3 @@ def test_prune_never_removes_the_root(tmp_path):
     root.mkdir()
     assert prune_empty_dirs(root, root) == []
     assert root.is_dir()
-
-
-def test_prune_leaves_a_non_empty_start_alone(tmp_path):
-    root = tmp_path / "brain"
-    (root / "a").mkdir(parents=True)
-    (root / "a" / "note.md").write_text("x")
-    assert prune_empty_dirs(root, root / "a") == []
-    assert (root / "a" / "note.md").exists()

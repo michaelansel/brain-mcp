@@ -125,7 +125,7 @@ ever adds (it errors rather than overwriting an existing project).
 
 - `write(path, content, base_hash=None)` — create or overwrite; creates parent dirs. Overwriting an existing file requires `base_hash`.
 - `edit(path, old_string, new_string, replace_all=False, base_hash=None)` — replace exact text. `old_string` must match the file byte-for-byte, including whitespace and indentation, and must be unique unless `replace_all` is set. `base_hash` is optional here and verified when given. Also returns `replacements`.
-- `move(src, dst)` — `git mv`; creates parent dirs. A source directory left empty by the move is removed.
+- `move(src, dst)` — `git mv`; creates parent dirs. A source directory left empty by the move is removed, and its parents while they are empty too.
 - `delete(path)` — remove a file, or a directory recursively. A parent directory left empty by the delete is removed too. Naming an empty directory removes just that directory, without a commit — git cannot track one, so there is nothing to commit.
 
 **Projects**
@@ -238,6 +238,7 @@ via brain-mcp
 - A `project.md` with missing or malformed frontmatter still appears in `projects()` with `status: "unknown"`; `project()` on it raises an actionable error.
 - Project names must be plain directory names (no `/`, no leading `.`).
 - Deleting an untracked (never-committed) file is an error rather than a silent `rm` — the file is left alone. An empty *directory* is the exception: git cannot track one, so there is nothing to lose and nothing to commit.
+- Pruning is `rmdir` only, and the walk stops the moment `rmdir` refuses — a directory holding anything at all ends it. No file, and no directory holding a file, can be lost to it however far up the chain it runs.
 - Pruning stops before the top level: a direct child of the root is never removed automatically. Those are the brain's skeleton, and reaping one the moment it empties would make deleting a single note remove `inbox/`. It is a rule about depth, so no directory is special-cased by name; removing one deliberately still works by naming it.
 - Folder summaries add no tools: `read` and `project()` gained response fields instead. The access path for a summary is the path it lives at.
 - `project_create` does **not** scaffold a `summary.md` — a brand-new project has nothing to summarise, and `agents.md` says not to scaffold empties. `project()` reports the absence instead, where someone is orienting on the project anyway.

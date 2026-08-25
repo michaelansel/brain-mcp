@@ -72,27 +72,30 @@ def rel(root: Path, resolved: Path) -> str:
 
 
 def prune_empty_dirs(root: Path, start: Path) -> list[str]:
-    """Remove `start` and its ancestors while they are empty, stopping before
-    the top level. Returns what was removed, root-relative, innermost first.
+    """Remove `start`, then its ancestors, for as long as each is empty.
+    Returns what was removed, root-relative, innermost first.
 
     git cannot track an empty directory, so moving or deleting the last file
     out of one leaves it behind in the working tree with nothing to commit —
     a folder that exists but holds nothing, which agents.md says should not
     exist. Nothing here touches git, because git never knew about it.
 
-    A direct child of the root is never pruned. Those are the brain's
-    skeleton (inbox, projects, areas, resources, archive), and reaping one
-    the moment it empties would make deleting a single note remove `inbox/`.
-    That is a rule about depth, not about which directories they are, so no
-    name is special-cased. Removing one on purpose still works: name it.
+    `rmdir` is the whole guard, and the loop stops the moment it refuses: a
+    directory containing anything at all — a file, or a directory that could
+    not itself be removed — ends the walk. So no file, and no directory
+    holding a file, can be lost here, however far up the chain it runs.
 
-    Nothing outside the root is touched; `start` must already be confined.
+    A direct child of the root is left alone regardless. Those are the
+    brain's skeleton, and reaping one the moment it empties would make
+    deleting a single note remove `inbox/`. That is a rule about depth, so
+    no directory is special-cased by name; removing one deliberately still
+    works by naming it. `start` must already be confined.
     """
     removed = []
     current = start
     while current.parent != root and root in current.parents:
         try:
-            current.rmdir()  # refuses on a non-empty directory, which is the guard
+            current.rmdir()  # refuses on a directory with anything in it
         except OSError:
             break
         removed.append(rel(root, current))

@@ -352,8 +352,18 @@ async def test_delete_removes_a_directory_git_never_tracked(client, brain):
     assert result["commit"] == head_sha(brain)  # nothing was committed
 
 
-async def test_deleting_an_empty_dir_prunes_its_empty_parents(client, brain):
+async def test_deleting_an_empty_dir_walks_up_through_empty_parents(client, brain):
     (brain / "projects" / "a" / "b").mkdir(parents=True)
     data(await client.call_tool("delete", {"path": "projects/a/b"}))
     assert not (brain / "projects" / "a").exists()
     assert (brain / "projects").is_dir()  # the skeleton is never reaped
+
+
+async def test_delete_refuses_to_lose_a_directory_with_contents(client, brain):
+    """The recursive branch still commits through git rm; nothing reaches
+    rmdir with anything in it."""
+    (brain / "projects" / "rocket").mkdir(parents=True)
+    (brain / "projects" / "rocket" / "keep.md").write_text("# keep\n")
+    commit_all(brain, "seed")
+    await client.call_tool("delete", {"path": "projects/rocket/keep.md"})
+    assert not (brain / "projects" / "rocket").exists()  # emptied, so pruned
