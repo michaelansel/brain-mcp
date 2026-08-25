@@ -69,3 +69,32 @@ def rel(root: Path, resolved: Path) -> str:
     if resolved == root:
         return ""
     return resolved.relative_to(root).as_posix()
+
+
+def prune_empty_dirs(root: Path, start: Path) -> list[str]:
+    """Remove `start` and its ancestors while they are empty, stopping before
+    the top level. Returns what was removed, root-relative, innermost first.
+
+    git cannot track an empty directory, so moving or deleting the last file
+    out of one leaves it behind in the working tree with nothing to commit —
+    a folder that exists but holds nothing, which agents.md says should not
+    exist. Nothing here touches git, because git never knew about it.
+
+    A direct child of the root is never pruned. Those are the brain's
+    skeleton (inbox, projects, areas, resources, archive), and reaping one
+    the moment it empties would make deleting a single note remove `inbox/`.
+    That is a rule about depth, not about which directories they are, so no
+    name is special-cased. Removing one on purpose still works: name it.
+
+    Nothing outside the root is touched; `start` must already be confined.
+    """
+    removed = []
+    current = start
+    while current.parent != root and root in current.parents:
+        try:
+            current.rmdir()  # refuses on a non-empty directory, which is the guard
+        except OSError:
+            break
+        removed.append(rel(root, current))
+        current = current.parent
+    return removed

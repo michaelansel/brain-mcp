@@ -305,3 +305,55 @@ async def test_delete_untracked_file_errors(brain, client):
 async def test_delete_missing(client):
     with pytest.raises(ToolError, match="no such path"):
         await client.call_tool("delete", {"path": "ghost.md"})
+
+
+# --- directories emptied by a move or delete ---
+
+
+async def test_move_removes_the_directory_it_empties(client, brain):
+    """git mv leaves the source directory behind. Nothing commits it, so it
+    lingers in the working tree as a folder holding nothing."""
+    (brain / "projects" / "rocket").mkdir(parents=True)
+    (brain / "projects" / "rocket" / "project.md").write_text("# rocket\n")
+    commit_all(brain, "seed project")
+    await client.call_tool(
+        "move", {"src": "projects/rocket/project.md", "dst": "archive/rocket/project.md"}
+    )
+    assert not (brain / "projects" / "rocket").exists()
+    assert (brain / "archive" / "rocket" / "project.md").is_file()
+    assert (brain / "projects").is_dir()
+
+
+async def test_move_keeps_a_directory_that_still_has_notes(client, brain):
+    (brain / "projects" / "rocket").mkdir(parents=True)
+    (brain / "projects" / "rocket" / "project.md").write_text("# rocket\n")
+    (brain / "projects" / "rocket" / "fuel.md").write_text("# fuel\n")
+    commit_all(brain, "seed project")
+    await client.call_tool("move", {"src": "projects/rocket/fuel.md", "dst": "inbox/fuel.md"})
+    assert (brain / "projects" / "rocket" / "project.md").is_file()
+
+
+async def test_delete_removes_the_directory_it_empties(client, brain):
+    (brain / "projects" / "rocket").mkdir(parents=True)
+    (brain / "projects" / "rocket" / "project.md").write_text("# rocket\n")
+    commit_all(brain, "seed project")
+    await client.call_tool("delete", {"path": "projects/rocket/project.md"})
+    assert not (brain / "projects" / "rocket").exists()
+
+
+async def test_delete_removes_a_directory_git_never_tracked(client, brain):
+    """The escape hatch: git cannot track an empty directory, so `git rm` has
+    nothing to match. Before this, a stray empty folder was unreachable
+    through the API and could only be fixed with shell access."""
+    (brain / "projects" / "ghost").mkdir(parents=True)
+    result = data(await client.call_tool("delete", {"path": "projects/ghost"}))
+    assert not (brain / "projects" / "ghost").exists()
+    assert "removed empty directory" in result["message"]
+    assert result["commit"] == head_sha(brain)  # nothing was committed
+
+
+async def test_deleting_an_empty_dir_prunes_its_empty_parents(client, brain):
+    (brain / "projects" / "a" / "b").mkdir(parents=True)
+    data(await client.call_tool("delete", {"path": "projects/a/b"}))
+    assert not (brain / "projects" / "a").exists()
+    assert (brain / "projects").is_dir()  # the skeleton is never reaped

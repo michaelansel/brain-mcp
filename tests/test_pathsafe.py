@@ -3,7 +3,7 @@
 import pytest
 from fastmcp.exceptions import ToolError
 
-from brain_mcp.pathsafe import confine, rel, resolve_root
+from brain_mcp.pathsafe import confine, prune_empty_dirs, rel, resolve_root
 
 
 @pytest.fixture
@@ -172,3 +172,39 @@ def test_new_path_under_outside_symlink_rejected(root, outside):
 def test_rel_roundtrip(root):
     assert rel(root, confine(root, "sub/deep.md")) == "sub/deep.md"
     assert rel(root, confine(root, "", allow_root=True)) == ""
+
+
+# --- pruning empty directories ---
+
+
+def test_prune_removes_a_chain_of_empty_dirs(tmp_path):
+    root = tmp_path / "brain"
+    deep = root / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    assert prune_empty_dirs(root, deep) == ["a/b/c", "a/b"]
+    assert (root / "a").is_dir()  # a direct child of the root is never pruned
+    assert not (root / "a" / "b").exists()
+
+
+def test_prune_stops_at_a_non_empty_dir(tmp_path):
+    root = tmp_path / "brain"
+    deep = root / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    (root / "a" / "keep.md").write_text("x")
+    assert prune_empty_dirs(root, deep) == ["a/b/c", "a/b"]
+    assert (root / "a").is_dir()
+
+
+def test_prune_never_removes_the_root(tmp_path):
+    root = tmp_path / "brain"
+    root.mkdir()
+    assert prune_empty_dirs(root, root) == []
+    assert root.is_dir()
+
+
+def test_prune_leaves_a_non_empty_start_alone(tmp_path):
+    root = tmp_path / "brain"
+    (root / "a").mkdir(parents=True)
+    (root / "a" / "note.md").write_text("x")
+    assert prune_empty_dirs(root, root / "a") == []
+    assert (root / "a" / "note.md").exists()

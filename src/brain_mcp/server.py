@@ -28,7 +28,7 @@ from brain_mcp.gitio import (
     run_git,
     write_lock,
 )
-from brain_mcp.pathsafe import confine, rel
+from brain_mcp.pathsafe import confine, prune_empty_dirs, rel
 
 # Injected into every enrolled session at initialization — the one channel
 # that reaches all surfaces. Policy lives in agents.md, not here.
@@ -310,7 +310,8 @@ def build_server(config: BrainConfig) -> FastMCP:
     @git_guard
     async def move(src: str, dst: str) -> MutationResult:
         """Move or rename via git mv. Parent directories are created;
-        an existing destination file is overwritten."""
+        an existing destination file is overwritten. A source directory left
+        empty by the move is removed."""
         source = confine(root, src)
         if not source.exists():
             raise ToolError(f"no such path '{src}'")
@@ -326,21 +327,43 @@ def build_server(config: BrainConfig) -> FastMCP:
             await run_git(root, "mv", "-f", "--", r_src, r_dst)
             msg = commit_message("move", f"{r_src} -> {r_dst}")
             sha = await commit_paths(root, [r_src, r_dst], msg)
+            # Inside the lock: another writer must not be filling this
+            # directory while we decide it is empty.
+            prune_empty_dirs(root, source.parent)
         return {"path": r_dst, "commit": sha, "message": msg.splitlines()[0]}
 
     @mcp.tool(annotations=OVERWRITES_NOT_IDEMPOTENT)
     @git_guard
     async def delete(path: str) -> MutationResult:
-        """Delete a file (or directory, recursively)."""
+        """Delete a file (or directory, recursively). A parent directory left
+        empty by the delete is removed too."""
         target = confine(root, path)
         if not target.exists():
             raise ToolError(f"no such path '{path}'")
         r = rel(root, target)
         rm_args = ["rm", "-q", "-r", "--"] if target.is_dir() else ["rm", "-q", "--"]
         async with write_lock:
+            if target.is_dir() and not any(target.iterdir()):
+                # git cannot track an empty directory, so `git rm` has nothing
+                # to match and fails. There is also nothing to lose and nothing
+                # to commit: just remove it. Without this the server can create
+                # a stray empty directory (see move) that it cannot then clean
+                # up, leaving the only fix outside the API.
+                try:
+                    target.rmdir()
+                except OSError as exc:
+                    raise ToolError(f"cannot remove directory '{path}': {exc}") from exc
+                removed = [r, *prune_empty_dirs(root, target.parent)]
+                what = "directories" if len(removed) > 1 else "directory"
+                return {
+                    "path": r,
+                    "commit": await head_sha(root),
+                    "message": f"removed empty {what}: " + ", ".join(removed),
+                }
             await run_git(root, *rm_args, r)
             msg = commit_message("delete", r)
             sha = await commit_paths(root, [r], msg)
+            prune_empty_dirs(root, target.parent)
         return {"path": r, "commit": sha, "message": msg.splitlines()[0]}
 
     projects_module.register(mcp, config)
