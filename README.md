@@ -111,7 +111,7 @@ manual step required roughly once a year, when the minted token expires).
 
 A read-only website of the brain, for reading it without an agent or a clone.
 It is a static site: `scripts/build-site.sh` renders the brain with stock
-[MkDocs](https://www.mkdocs.org/) (config in `site/mkdocs.yml`) and nginx
+[MkDocs](https://www.mkdocs.org/) (config in `site/mkdocs.yml`, sidebar order in `site/nav.yml`) and nginx
 serves the result at `/site/`, behind the same login as `/mcp`. Nothing in the
 brain changes to make this work — no config file, no index, no front-matter
 the notes don't already have.

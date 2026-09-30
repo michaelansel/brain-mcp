@@ -27,6 +27,7 @@ trap 'rm -rf "$work"' EXIT
 mkdir "$work/docs"
 git -C "$BRAIN_ROOT" archive "$sha" | tar -x -C "$work/docs"
 cp "$repo/site/mkdocs.yml" "$work/mkdocs.yml"
+cp "$repo/site/nav.yml" "$work/docs/.nav.yml"
 
 # A landing page that says what this build is of. A brain that has its own
 # index.md keeps it.
@@ -48,7 +49,7 @@ if [ ! -e "$work/docs/index.md" ]; then
     } >"$work/docs/index.md"
 fi
 
-uvx --from mkdocs==1.6.1 mkdocs build --quiet -f "$work/mkdocs.yml" -d "$site_dir/$release"
+uvx --from mkdocs==1.6.1 --with mkdocs-awesome-nav==3.3.0 mkdocs build --quiet -f "$work/mkdocs.yml" -d "$site_dir/$release"
 
 # rename(2) over the old symlink is atomic; `ln -sfn` alone is not.
 ln -s "$release" "$work/current"

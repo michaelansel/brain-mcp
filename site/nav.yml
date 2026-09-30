@@ -1,0 +1,12 @@
+# Sidebar order for the brain site. scripts/build-site.sh copies this into the
+# export as `.nav.yml`, where the awesome-nav plugin reads it. The folders come
+# in the order you work through them rather than alphabetically; a folder the
+# brain does not have yet is skipped, and "*" is everything not named here.
+nav:
+  - index.md
+  - inbox
+  - projects
+  - areas
+  - resources
+  - archive
+  - "*"

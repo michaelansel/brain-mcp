@@ -10,3 +10,6 @@ theme:
 # The brain holds the odd HTML file (a review template). Publish notes only.
 exclude_docs: |
   *.html
+plugins:
+  - search # on by default, but naming any plugin turns the defaults off
+  - awesome-nav # sidebar order, from nav.yml

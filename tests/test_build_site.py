@@ -66,6 +66,7 @@ def test_publishes_the_commit_not_the_working_tree(brain, build):
     assert not (current / "inbox" / "draft.md").exists()
     assert "Build a rocket" in (current / "inbox" / "idea.md").read_text()
     assert (current / "mkdocs.yml").exists()  # the repo's config was handed over
+    assert "- inbox" in (current / ".nav.yml").read_text()  # and its sidebar order
 
 
 def test_generates_an_index_naming_the_commit(brain, build):
