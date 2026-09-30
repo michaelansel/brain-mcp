@@ -9,8 +9,11 @@ brain are never swept in.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import os
 import re
+import signal
 import subprocess
 from pathlib import Path
 
@@ -42,10 +45,30 @@ _pending_pushes: set[asyncio.Task[None]] = set()
 _last_pushed_sha: str | None = None
 
 
+# Post-commit command state, parallel to push. None disables it; set once at
+# server build time.
+_post_commit_cmd: str | None = None
+# Its own lock for the same reason push has one: a slow run never blocks a writer.
+_post_commit_lock = asyncio.Lock()
+# True while a run is waiting for the lock. One waiter is enough — it has not
+# started yet, so it will see every commit made before it does.
+_post_commit_queued = False
+_pending_post_commits: set[asyncio.Task[None]] = set()
+# Seconds before a run is killed. A hung command would otherwise hold the lock
+# forever and silently stop every later run.
+POST_COMMIT_TIMEOUT = 120.0
+
+
 def configure_push(remote: str | None) -> None:
     """Set (or clear) the remote every commit pushes to. None disables push."""
     global _push_remote
     _push_remote = remote
+
+
+def configure_post_commit(cmd: str | None) -> None:
+    """Set (or clear) the executable run after every commit. None disables it."""
+    global _post_commit_cmd
+    _post_commit_cmd = cmd
 
 
 class GitError(Exception):
@@ -87,7 +110,8 @@ async def commit_paths(root: Path, paths: list[str], message: str) -> str:
     Caller must hold `write_lock`. The pathspec keeps unrelated staged
     changes out of the commit. If a push remote is configured, a push of
     the new HEAD is kicked off in the background — best-effort, never
-    blocking or failing this call.
+    blocking or failing this call. A configured post-commit command is
+    started the same way.
     """
     await run_git(root, "commit", "-q", "-m", message, "--", *paths)
     proc = await run_git(root, "rev-parse", "HEAD")
@@ -96,7 +120,62 @@ async def commit_paths(root: Path, paths: list[str], message: str) -> str:
         task = asyncio.create_task(_push_head(root))
         _pending_pushes.add(task)
         task.add_done_callback(_pending_pushes.discard)
+    if _post_commit_cmd:
+        task = asyncio.create_task(_run_post_commit(root))
+        _pending_post_commits.add(task)
+        task.add_done_callback(_pending_post_commits.discard)
     return sha
+
+
+async def _run_post_commit(root: Path) -> None:
+    """Best-effort run of the configured post-commit command.
+
+    Never raises. The command is executed directly — no shell, no arguments —
+    with the brain as its working directory and `BRAIN_ROOT` in its
+    environment. It is told nothing about which commit triggered it and reads
+    HEAD for itself, which is what lets a burst of commits coalesce: while one
+    run is in flight at most one more waits, and that one sees them all.
+    """
+    global _post_commit_queued
+    cmd = _post_commit_cmd
+    if not cmd or _post_commit_queued:
+        return
+    _post_commit_queued = True
+    try:
+        await _post_commit_lock.acquire()
+    finally:
+        _post_commit_queued = False
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            cmd,
+            cwd=root,
+            env={**os.environ, "BRAIN_ROOT": str(root)},
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,  # its own process group, so a kill reaches its children
+        )
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), POST_COMMIT_TIMEOUT)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            await proc.wait()
+            logger.warning("post-commit command %s killed after %ss", cmd, POST_COMMIT_TIMEOUT)
+            return
+        if proc.returncode == 0:
+            logger.info("post-commit command %s succeeded", cmd)
+        else:
+            logger.warning(
+                "post-commit command %s failed (exit %s): %s",
+                cmd,
+                proc.returncode,
+                out.decode("utf-8", errors="replace").strip()[-2000:],
+            )
+    except Exception:
+        logger.exception("unexpected error running post-commit command %s", cmd)
+    finally:
+        _post_commit_lock.release()
 
 
 async def _push_head(root: Path) -> None:

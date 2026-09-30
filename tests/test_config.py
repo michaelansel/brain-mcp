@@ -114,6 +114,13 @@ def test_bad_git_push(tmp_path):
         load_config({"BRAIN_ROOT": str(repo), "BRAIN_MCP_GIT_PUSH": "yes"})
 
 
+def test_post_commit_cmd(tmp_path):
+    repo = make_repo(tmp_path / "brain")
+    assert load_config({"BRAIN_ROOT": str(repo)}).post_commit_cmd is None
+    cfg = load_config({"BRAIN_ROOT": str(repo), "BRAIN_MCP_POST_COMMIT_CMD": "/opt/build.sh"})
+    assert cfg.post_commit_cmd == "/opt/build.sh"
+
+
 def test_read_before_write_defaults_on(tmp_path):
     repo = make_repo(tmp_path / "brain")
     assert load_config({"BRAIN_ROOT": str(repo)}).read_before_write is True

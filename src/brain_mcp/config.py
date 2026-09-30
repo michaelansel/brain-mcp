@@ -24,6 +24,7 @@ class BrainConfig:
     port: int = 8000
     git_remote: str | None = None  # remote name/URL to push HEAD to after each commit
     git_push: bool = True  # escape hatch: pause pushing without unsetting git_remote
+    post_commit_cmd: str | None = None  # executable to run after each commit
     read_before_write: bool = True  # require a prior read before changing an existing file
     # When a folder summary is far enough behind its notes to be worth a rewrite.
     # Any one of these is enough; see summaries.py.
@@ -93,6 +94,7 @@ def load_config(env: Mapping[str, str] | None = None) -> BrainConfig:
         port=port,
         git_remote=git_remote,
         git_push=git_push,
+        post_commit_cmd=env.get("BRAIN_MCP_POST_COMMIT_CMD") or None,
         read_before_write=read_before_write,
         summary_min_files=_number(env, "BRAIN_MCP_SUMMARY_MIN_FILES", 3),
         summary_max_age_days=_number(env, "BRAIN_MCP_SUMMARY_MAX_AGE_DAYS", 30),

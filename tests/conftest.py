@@ -24,11 +24,15 @@ async def _reset_gitio_state():
     each test instead of replacing the object, and reset push state too."""
     gitio.write_lock._loop = None
     gitio._push_lock._loop = None
+    gitio._post_commit_lock._loop = None
     gitio.configure_push(None)
+    gitio.configure_post_commit(None)
     gitio._last_pushed_sha = None
+    gitio._post_commit_queued = False
     yield
-    if gitio._pending_pushes:
-        await asyncio.gather(*gitio._pending_pushes, return_exceptions=True)
+    pending = gitio._pending_pushes | gitio._pending_post_commits
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 def git(root, *args, check=True):

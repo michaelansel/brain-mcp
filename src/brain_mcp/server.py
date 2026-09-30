@@ -23,6 +23,7 @@ from brain_mcp.errors import ToolError, git_guard
 from brain_mcp.gitio import (
     commit_message,
     commit_paths,
+    configure_post_commit,
     configure_push,
     has_changes,
     head_sha,
@@ -82,6 +83,7 @@ class EditResult(MutationResult):
 def build_server(config: BrainConfig) -> FastMCP:
     root = config.root
     configure_push(config.git_remote if config.git_push else None)
+    configure_post_commit(config.post_commit_cmd)
     attention = attention_module.Attention(
         config.state_dir or attention_module.default_state_dir(), config.attention_days
     )
