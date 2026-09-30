@@ -91,6 +91,36 @@ before relying on it.
 uv run --directory gateway oauth-gateway
 ```
 
+## What nginx lets through
+
+`deploy/nginx.conf` is **default closed**. One rule at the top of the server
+block refuses every request that does not carry the allowed `X-ExeDev-Email`,
+before any location is chosen. The only exceptions are the six OAuth paths
+named in its `$edge_only` list — they have to work for a caller with no
+identity yet, so they rely on exe.dev's edge alone. Everything else, including
+the brain site at `/site/` and any location added later, is closed until it is
+added to that list.
+
+This is what makes the public window below safe to open: flipping the VM
+public removes the edge's login but exposes nothing new, because an anonymous
+request gets the same 404 from a closed path as from one that does not exist.
+`/mcp` alone answers 401, since Claude needs the challenge to start a flow.
+
+Separately, `/mcp` refuses any request carrying a `Sec-Fetch-Site` header.
+Browsers send it on every request and page script cannot strip or forge it;
+MCP clients never send it. So a web page — in particular a note rendered on
+the brain site, which shares this origin and the reader's login — cannot call
+the brain's tools.
+
+Before deploying any change to that file, run it for real:
+
+```sh
+gateway/deploy/check-nginx.sh     # needs finch, or CONTAINER=docker
+```
+
+It starts the config in a container and requests every kind of path with no
+identity, the wrong one, and the right one.
+
 ## Connecting Claude.ai (and reconnecting when the token expires)
 
 The port only needs to be public for the few minutes this takes. Do the
@@ -106,6 +136,10 @@ ssh exe.dev share set-public <vm>
 #    public mode, not just private mode. If this ever returns success as
 #    someone-else@example.com, STOP — do not proceed, the design is unsafe.
 curl -i https://<vm>.exe.xyz/mcp -H "X-ExeDev-Email: someone-else@example.com" -d '{}'
+
+#    And that nothing but the OAuth paths opened up with it. Both must be 404:
+curl -i https://<vm>.exe.xyz/site/
+curl -i https://<vm>.exe.xyz/
 
 # 3. In Claude.ai: Settings -> Connectors -> Add custom connector, URL:
 #    https://<vm>.exe.xyz/mcp

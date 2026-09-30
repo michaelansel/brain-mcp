@@ -23,6 +23,7 @@ Environment variables:
 | `BRAIN_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http`; the `--transport` flag overrides it. |
 | `BRAIN_MCP_GIT_REMOTE` | no | (push disabled) | Git remote name or URL to push `HEAD` to after every commit, best-effort and non-blocking. Auth (SSH keys/config) must already work for `git` on this host outside of brain-mcp. |
 | `BRAIN_MCP_GIT_PUSH` | no | `true` | Set `false` to pause pushing without unsetting `BRAIN_MCP_GIT_REMOTE`. |
+| `BRAIN_MCP_POST_COMMIT_CMD` | no | (off) | Path to an executable to run after every commit, best-effort and non-blocking (see "Browsing the brain"). Run directly — no shell, no arguments — with the brain as its working directory and `BRAIN_ROOT` set. |
 | `BRAIN_MCP_READ_BEFORE_WRITE` | no | `true` | Require a prior `read` before `edit`, or before `write` overwrites an existing file (see "Read before write"). Set `false` to disable the gate. |
 | `BRAIN_MCP_SUMMARY_MIN_FILES` | no | `3` | Changed files that make a folder summary worth rewriting (see "Folder summaries"). |
 | `BRAIN_MCP_SUMMARY_MAX_AGE_DAYS` | no | `30` | Summary age that makes a rewrite worth asking for on its own. |
@@ -105,6 +106,39 @@ The only operational change is that brain-mcp now binds
 to, and it only forwards `/mcp` once exe.dev has already verified the caller.
 See `gateway/README.md` for setup and the ops runbook (including the one
 manual step required roughly once a year, when the minted token expires).
+
+### Browsing the brain
+
+A read-only website of the brain, for reading it without an agent or a clone.
+It is a static site: `scripts/build-site.sh` renders the brain with stock
+[MkDocs](https://www.mkdocs.org/) (config in `site/mkdocs.yml`) and nginx
+serves the result at `/site/`, behind the same login as `/mcp`. Nothing in the
+brain changes to make this work — no config file, no index, no front-matter
+the notes don't already have.
+
+```sh
+sudo mkdir -p /var/www/brain-site && sudo chown "$USER": /var/www/brain-site
+BRAIN_ROOT=~/brain scripts/build-site.sh          # first build, by hand
+# then, in brain-mcp's environment, so every commit rebuilds it:
+BRAIN_MCP_POST_COMMIT_CMD=/path/to/brain-mcp/scripts/build-site.sh
+```
+
+- **Built from a commit, not the working tree.** The script renders
+  `git archive HEAD`, so a half-written or uncommitted file never appears.
+  That includes hand edits the server has not committed yet.
+- **Published atomically.** Each build lands in its own directory under
+  `$BRAIN_SITE_DIR/releases/`, and `current` is a symlink swapped by rename,
+  so a reader never sees a partial site. The last three releases are kept.
+- **Says how fresh it is.** The landing page names the commit and build time
+  and lists the most recently changed notes. A failed build leaves the last
+  good site in place, logs a warning (`journalctl -u brain-mcp`), and tells
+  nobody — the stale commit on the landing page is the signal.
+- **The build script lives here, not in the brain.** Anything in the brain is
+  writable by every MCP client; a build script there would be code execution
+  on this host for anyone who can write a note.
+- **Notes are rendered as written**, raw HTML included. What stops a script in
+  a note from using the reader's login is that nginx refuses `/mcp` to
+  browsers outright — see `gateway/README.md`.
 
 ## Tools
 
