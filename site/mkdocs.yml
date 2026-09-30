@@ -1,0 +1,12 @@
+# MkDocs config for the read-only brain site. scripts/build-site.sh copies this
+# beside a `docs/` export of the brain; nothing here lives in the brain itself.
+site_name: Brain
+docs_dir: docs
+theme:
+  name: readthedocs
+  # The theme would otherwise load highlight.js from a CDN. The site makes no
+  # requests off its own origin.
+  highlightjs: false
+# The brain holds the odd HTML file (a review template). Publish notes only.
+exclude_docs: |
+  *.html
