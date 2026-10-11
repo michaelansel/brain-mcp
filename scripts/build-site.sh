@@ -28,28 +28,15 @@ mkdir "$work/docs"
 git -C "$BRAIN_ROOT" archive "$sha" | tar -x -C "$work/docs"
 cp "$repo/site/mkdocs.yml" "$work/mkdocs.yml"
 cp "$repo/site/nav.yml" "$work/docs/.nav.yml"
+cp "$repo/site/extra.css" "$work/docs/extra.css"
 
-# A landing page that says what this build is of. A brain that has its own
-# index.md keeps it.
-if [ ! -e "$work/docs/index.md" ]; then
-    {
-        printf '# Brain\n\n'
-        printf 'Built %s from commit `%s`.\n\n' "$now" "${sha:0:12}"
-        printf '## Recently changed\n\n'
-        count=0
-        while IFS=$'\t' read -r day path; do
-            [ -f "$work/docs/$path" ] || continue # since deleted or moved
-            printf -- '- %s [%s](<%s>)\n' "$day" "$path" "$path"
-            count=$((count + 1))
-            [ "$count" -lt 20 ] || break
-        done < <(
-            git -C "$BRAIN_ROOT" -c core.quotePath=false log -n 200 --format='@%cs' --name-only "$sha" -- '*.md' |
-                awk '/^@/ { day = substr($0, 2); next } NF && !seen[$0]++ { print day "\t" $0 }'
-        )
-    } >"$work/docs/index.md"
-fi
+# A landing page, and a page for each folder: titles rather than paths, the
+# notes that changed most recently, and the projects active this week. A page
+# the brain already has is kept.
+uv run --quiet --project "$repo" --frozen python "$repo/scripts/site_pages.py" "$work/docs" "$BRAIN_ROOT" "$sha" "$now"
 
-uvx --from mkdocs==1.6.1 --with mkdocs-awesome-nav==3.3.0 mkdocs build --quiet -f "$work/mkdocs.yml" -d "$site_dir/$release"
+# Material prints a banner about MkDocs 2.0 on every build; this is pinned to 1.x.
+NO_MKDOCS_2_WARNING=1 uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 --with mkdocs-awesome-nav==3.3.0 mkdocs build --quiet -f "$work/mkdocs.yml" -d "$site_dir/$release"
 
 # rename(2) over the old symlink is atomic; `ln -sfn` alone is not.
 ln -s "$release" "$work/current"

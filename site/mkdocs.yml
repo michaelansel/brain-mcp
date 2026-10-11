@@ -3,10 +3,21 @@
 site_name: Brain
 docs_dir: docs
 theme:
-  name: readthedocs
-  # The theme would otherwise load highlight.js from a CDN. The site makes no
-  # requests off its own origin.
-  highlightjs: false
+  name: material
+  # Material would otherwise load its fonts from Google. The site makes no
+  # requests off its own origin; system fonts it is.
+  font: false
+  features:
+    - navigation.tabs # top-level folders as tabs (shown on phones by extra.css)
+    - navigation.indexes # a folder's index.md is the folder's own page
+    - navigation.path # breadcrumbs above each page
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+extra_css:
+  - extra.css
 # The brain holds the odd HTML file (a review template). Publish notes only.
 exclude_docs: |
   *.html

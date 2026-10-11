@@ -110,11 +110,12 @@ manual step required roughly once a year, when the minted token expires).
 ### Browsing the brain
 
 A read-only website of the brain, for reading it without an agent or a clone.
-It is a static site: `scripts/build-site.sh` renders the brain with stock
-[MkDocs](https://www.mkdocs.org/) (config in `site/mkdocs.yml`, sidebar order in `site/nav.yml`) and nginx
-serves the result at `/site/`, behind the same login as `/mcp`. Nothing in the
-brain changes to make this work — no config file, no index, no front-matter
-the notes don't already have.
+It is a static site: `scripts/build-site.sh` renders the brain with
+[MkDocs](https://www.mkdocs.org/) and the [Material](https://squidfunk.github.io/mkdocs-material/)
+theme (config in `site/mkdocs.yml`, sidebar order in `site/nav.yml`, phone tweaks
+in `site/extra.css`) and nginx serves the result at `/site/`, behind the same
+login as `/mcp`. Nothing in the brain changes to make this work — no config
+file, no index, no front-matter the notes don't already have.
 
 ```sh
 sudo mkdir -p /var/www/brain-site && sudo chown "$USER": /var/www/brain-site
@@ -129,8 +130,13 @@ BRAIN_MCP_POST_COMMIT_CMD=/path/to/brain-mcp/scripts/build-site.sh
 - **Published atomically.** Each build lands in its own directory under
   `$BRAIN_SITE_DIR/releases/`, and `current` is a symlink swapped by rename,
   so a reader never sees a partial site. The last three releases are kept.
-- **Says how fresh it is.** The landing page names the commit and build time
-  and lists the most recently changed notes. A failed build leaves the last
+- **Browsable by folder.** `scripts/site_pages.py` writes the pages the brain
+  doesn't have into the build only: an index for each folder, listing its
+  notes by title, newest first, under the folder's `summary.md` if it has one,
+  and a landing page. A folder's own `index.md` or `README.md` is kept.
+- **Says how fresh it is.** The landing page names the commit and build time,
+  lists the projects with commits in the last week, and lists the 20 most
+  recently changed notes by title under the day they changed. A failed build leaves the last
   good site in place, logs a warning (`journalctl -u brain-mcp`), and tells
   nobody — the stale commit on the landing page is the signal.
 - **The build script lives here, not in the brain.** Anything in the brain is

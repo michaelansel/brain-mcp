@@ -1,0 +1,29 @@
+/* Additions to Material for the brain site. build-site.sh copies this into the
+   export beside the notes. */
+
+/* Material hides the section tabs on narrow screens and leaves only the
+   drawer. On a phone the tabs are the quickest way between inbox, projects
+   and areas, so keep them, scrolling sideways when they don't fit. */
+@media screen and (max-width: 76.2344em) {
+  .md-tabs {
+    display: block;
+  }
+  .md-tabs__list {
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+}
+
+/* The folder or date after a link in the generated lists. */
+.brain-meta {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.85em;
+  margin-left: 0.3em;
+}
+
+/* The first lines of a project's summary on the landing page. */
+.brain-gist {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.85em;
+}
