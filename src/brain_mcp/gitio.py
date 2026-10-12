@@ -285,6 +285,14 @@ async def changed_since(root: Path, sha: str, pathspec: str) -> list[str]:
     return sorted(f"{code} {path}" for path, code in changes.items())
 
 
+async def commit_times(root: Path, pathspec: str) -> list[int]:
+    """Unix timestamps of every commit touching `pathspec`, newest first."""
+    proc = await run_git(root, "log", "--format=%ct", "--", pathspec, check=False)
+    if proc.returncode != 0:
+        return []
+    return [int(line) for line in proc.stdout.split()]
+
+
 async def commit_times_since(root: Path, sha: str, pathspec: str) -> list[int]:
     """Unix timestamps of commits after `sha` touching `pathspec`, newest first."""
     proc = await run_git(root, "log", "--format=%ct", f"{sha}..HEAD", "--", pathspec, check=False)

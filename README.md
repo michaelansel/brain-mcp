@@ -28,6 +28,8 @@ Environment variables:
 | `BRAIN_MCP_SUMMARY_MIN_FILES` | no | `3` | Changed files that make a folder summary worth rewriting (see "Folder summaries"). |
 | `BRAIN_MCP_SUMMARY_MAX_AGE_DAYS` | no | `30` | Summary age that makes a rewrite worth asking for on its own. |
 | `BRAIN_MCP_SUMMARY_QUIET_MINUTES` | no | `60` | How recent a run of commits has to be to count as work still in progress, and so not worth interrupting. |
+| `BRAIN_MCP_SUMMARY_FIRST_EDITS` | no | `30` | Commits touching a folder with no summary that make writing one worth asking for. |
+| `BRAIN_MCP_SUMMARY_FIRST_CHARS` | no | `40000` | Characters across a folder's files that make a first summary worth asking for. |
 | `BRAIN_MCP_STATE_DIR` | no | `$XDG_STATE_HOME/brain-mcp` | Where read tracking lives. Outside the brain by design (see "Folder summaries"). |
 | `BRAIN_MCP_ATTENTION_DAYS` | no | `90` | How long a read event is kept before pruning. |
 
@@ -182,6 +184,15 @@ A folder is summarised iff it contains `summary.md`. Presence is the opt-in —
 the server special-cases no directory, so `projects/` gets summaries because
 convention puts them there, and anything else gets one the moment someone
 writes one.
+
+Nobody has to write the first one by hand. While a project has no summary,
+`project()` (and `projects(summaries_too=True)`) reports `"state": "none
+written"` with the sha to record as `covers:`. A small project gets only a
+suggestion. Once it has been touched by `BRAIN_MCP_SUMMARY_FIRST_EDITS` commits
+or holds `BRAIN_MCP_SUMMARY_FIRST_CHARS` characters, the suggestion becomes a
+`request`, the same kind of ask as a refresh. A folder whose whole history
+falls inside `BRAIN_MCP_SUMMARY_QUIET_MINUTES` is still being built, and is not
+asked yet.
 
 `project.md` says what a project is *for*; `summary.md` is a state note (in the
 `agents.md` sense: carries `surveyed:`, goes stale, believed only as far as its

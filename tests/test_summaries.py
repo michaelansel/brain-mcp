@@ -308,6 +308,37 @@ async def test_project_reports_a_missing_summary(client, brain):
     # The sha to claim comes with it: without one the first summary written
     # would cover nothing and report itself stale the moment it landed.
     assert result["summary"]["covers"] == head_sha(brain)
+    # A small project only gets the suggestion, not the request.
+    assert "request" not in result["summary"] and "how" in result["summary"]
+
+
+async def _missing_summary(brain, config, **limits):
+    git(brain, "rm", "-q", "--", "projects/rocket/summary.md")
+    commit_all(brain, "drop summary")
+    async with Client(build_server(replace(config, **limits))) as c:
+        return data(await c.call_tool("project", {"name": "rocket"}))["summary"]
+
+
+async def test_a_much_edited_project_is_asked_for_its_first_summary(brain, config):
+    # seed project, write summary, drop summary: three commits
+    summary = await _missing_summary(brain, config, summary_first_edits=3, summary_quiet_minutes=0)
+    assert "how" not in summary
+    assert "3 edits" in summary["request"]
+    assert f"covers: {head_sha(brain)}" in summary["request"]
+
+
+async def test_a_long_project_is_asked_for_its_first_summary(brain, config):
+    touch(brain, "projects/rocket/manual.md", "# Manual\n\n" + "Ignite. " * 100, "manual")
+    summary = await _missing_summary(
+        brain, config, summary_first_chars=500, summary_quiet_minutes=0
+    )
+    assert "request" in summary
+
+
+async def test_a_project_still_being_built_is_not_asked_yet(brain, config):
+    """Every commit in the folder is seconds old: whoever is building it is here."""
+    summary = await _missing_summary(brain, config, summary_first_edits=1, summary_quiet_minutes=60)
+    assert "request" not in summary and "how" in summary
 
 
 async def test_project_stays_quiet_when_current(client, brain):

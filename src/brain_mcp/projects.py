@@ -165,18 +165,23 @@ async def _summary_fields(root: Path, folder: str, config: BrainConfig) -> dict[
         # instead, where someone is orienting on the project, and hand over
         # the sha to claim: otherwise the first summary written has no way to
         # know what it covers and reports itself stale the moment it lands.
-        return {
-            "summary": {
-                "state": "none written",
-                "write": f"{folder}/{summaries.SUMMARY_NAME}",
-                "covers": await head_sha(root) or "",
-                "how": (
-                    "If this project has notes worth orienting from, write that "
-                    "file as a state note covering what they amount to, with the "
-                    "`covers:` sha above in its frontmatter."
-                ),
-            }
+        # Past a certain size the suggestion becomes a request.
+        sha = await head_sha(root) or ""
+        missing: dict[str, Any] = {
+            "state": "none written",
+            "write": f"{folder}/{summaries.SUMMARY_NAME}",
+            "covers": sha,
         }
+        ask = await summaries.first_ask(root, folder, config)
+        if ask:
+            missing["request"] = ask.format(sha=sha or "HEAD")
+        else:
+            missing["how"] = (
+                "If this project has notes worth orienting from, write that "
+                "file as a state note covering what they amount to, with the "
+                "`covers:` sha above in its frontmatter."
+            )
+        return {"summary": missing}
     stale = await summaries.state(root, folder, config)
     return {"summary_stale": stale} if stale is not None else {}
 

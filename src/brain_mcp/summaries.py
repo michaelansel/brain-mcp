@@ -31,6 +31,7 @@ from brain_mcp.config import BrainConfig
 from brain_mcp.gitio import (
     changed_since,
     commit_date,
+    commit_times,
     commit_times_since,
     has_changes,
     head_sha,
@@ -156,6 +157,39 @@ def _refresh_ask(
         f"base_hash. If you cannot do the whole job, leave it alone — a "
         f"partial rewrite that advances `covers:` hides everything it "
         f"skipped. See 'Folder summaries' in agents.md."
+    )
+
+
+async def first_ask(root: Path, folder: str, config: BrainConfig) -> str | None:
+    """The request to write a folder's first summary, or None while it is
+    still small enough to read cold.
+
+    Size is measured two ways, and either is enough: how many commits have
+    touched the folder, and how many characters its files hold. A folder
+    worked over in many small edits and one that landed as a few long notes
+    are both expensive to orient on without a summary.
+
+    Not asked while the folder's whole history is one burst still under way:
+    whoever is building it is here, and a summary of half-written work would
+    be stale before it landed.
+    """
+    times = await commit_times(root, folder)
+    chars = 0
+    for path in (root / folder).rglob("*"):
+        if path.is_file() and ".git" not in path.relative_to(root).parts:
+            chars += len(path.read_text(encoding="utf-8", errors="replace"))
+    if len(times) < config.summary_first_edits and chars < config.summary_first_chars:
+        return None
+    if times and (datetime.now().timestamp() - min(times)) / 60 < config.summary_quiet_minutes:
+        return None
+    return (
+        f"This folder has no summary and has grown past the point where "
+        f"reading it cold is cheap: {len(times)} edits and {chars:,} characters "
+        f"across its files. Write {summary_path(folder)} as a state note on "
+        f"what its notes currently amount to, with `covers: {{sha}}` in its "
+        f"frontmatter. Hand this to a subagent if you can, since it wants a "
+        f"clean context and has to read every note. If you cannot read them "
+        f"all, leave it for the next pass. See 'Folder summaries' in agents.md."
     )
 
 
