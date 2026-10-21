@@ -7,6 +7,8 @@
       and gets the login redirect instead. -#}
   <link rel="manifest" href="{{ base_url }}/manifest.webmanifest" crossorigin="use-credentials">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  {#- iOS takes its home-screen icon from this, not the manifest. -#}
+  <link rel="apple-touch-icon" href="{{ base_url }}/icons/icon-180.png">
 {% endblock %}
 
 {#- No navigation sidebar (on a phone, the drawer): Material renders the whole

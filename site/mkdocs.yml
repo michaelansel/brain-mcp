@@ -5,6 +5,7 @@ docs_dir: docs
 theme:
   name: material
   custom_dir: overrides # sw.js registration, manifest, reset link
+  favicon: icons/icon-192.png # the home-screen icon, from site/icons
   # Material would otherwise load its fonts from Google. The site makes no
   # requests off its own origin; system fonts it is.
   font: false

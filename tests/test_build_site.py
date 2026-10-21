@@ -126,6 +126,7 @@ def test_lists_every_published_file_for_offline_reading(brain, build):
     files = json.loads((current / "offline.json").read_text())["files"]
     assert "agents.md" in files and "inbox/idea.md" in files
     assert "manifest.webmanifest" in files and "extra.css" in files
+    assert "icons/icon-180.png" in files  # the home-screen icon
     assert not any(p.startswith("reset") for p in files)
     assert "sw.js" not in files and "offline.json" not in files
     assert (current / "reset" / "index.html").exists()

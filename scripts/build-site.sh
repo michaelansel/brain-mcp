@@ -35,6 +35,7 @@ cp "$repo/site/mkdocs.yml" "$work/mkdocs.yml"
 cp "$repo/site/nav.yml" "$work/docs/.nav.yml"
 cp "$repo/site/extra.css" "$work/docs/extra.css"
 cp "$repo/site/manifest.webmanifest" "$work/docs/manifest.webmanifest"
+cp -R "$repo/site/icons" "$work/docs/icons"
 cp -R "$repo/site/overrides" "$work/overrides"
 
 # A landing page, and a page for each folder: titles rather than paths, the
