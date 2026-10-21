@@ -95,9 +95,9 @@ def test_token_and_exedev_mutually_exclusive(tmp_path):
 def test_email_list_parsed_and_normalized(tmp_path):
     repo = make_repo(tmp_path / "brain")
     cfg = load_config(
-        {"BRAIN_ROOT": str(repo), "BRAIN_MCP_EXEDEV_EMAILS": " Me@Example.com , other@x.dev ,"}
+        {"BRAIN_ROOT": str(repo), "BRAIN_MCP_EXEDEV_EMAILS": " Me@Example.com , a@example.org ,"}
     )
-    assert cfg.exedev_emails == frozenset({"me@example.com", "other@x.dev"})
+    assert cfg.exedev_emails == frozenset({"me@example.com", "a@example.org"})
 
 
 def test_exedev_mode_builds_middleware_not_verifier(brain):

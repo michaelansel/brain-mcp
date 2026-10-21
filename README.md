@@ -395,6 +395,13 @@ uv run ruff check .
 uv run ruff format .
 ```
 
+This repository is public, and the code is generic while every deployment
+is private. Never commit brain contents, secrets, real hostnames or
+allowlisted identities, personal information, or machine-local paths. Use
+the placeholders listed in [CLAUDE.md](CLAUDE.md) instead
+(`<vm>.exe.xyz`, `@example.com`, `octocat`). `tests/test_public_safety.py`
+catches the obvious shapes of a leak; read the staged diff for the rest.
+
 Out of scope by design: OAuth, deployment, backlinks/tags/indexes beyond
 ripgrep, filesystem watching, and delegated interrogation (`ask()`) — the
 tool-module layout leaves a clean seam for that last one. The server never

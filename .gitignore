@@ -4,3 +4,13 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 dist/
+
+# This repo is public (see CLAUDE.md). Keep local and secret files out.
+.claude/settings.local.json
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key

@@ -5,7 +5,7 @@ token itself. It asks exe.dev — the same system already trusted to authenticat
 every other request to this VM — to mint a real, short... actually 1-year-lived
 credential, and hands that back to the OAuth client verbatim.
 
-Confirmed live against brain-mcp.exe.xyz (see the plan's Testing section):
+Confirmed live against a real deployment (see the plan's Testing section):
 - `--exp` takes a relative duration (`h`/`d`/`w`/`m`/`y` — note `m` is
   *months*, not minutes) — NOT a Unix timestamp; `--exp=<large integer>` is
   rejected outright.

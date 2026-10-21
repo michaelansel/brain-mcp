@@ -169,7 +169,7 @@ uv run ruff format .
 Tests never touch the real network — GitHub and exe.dev are both mocked via
 an injected `httpx.AsyncClient` (see `tests/conftest.py`).
 
-Verified live against `brain-mcp.exe.xyz` on 2026-07-25:
+Verified live against `<vm>.exe.xyz` (the author's deployment) on 2026-07-25:
 - The public-mode header-stripping behavior in step 2 above — both an
   anonymous request and one with a forged `X-ExeDev-Email` got the same 401,
   and a real VM token authenticated identically in public and private mode.
@@ -241,7 +241,7 @@ that live testing against the actual VM disproved:
 - **Refuted by live testing — the minted token is not an arbitrary
   command-execution credential.** The initial review flagged the token handed
   to Claude as an unrestricted exe.dev API key. Testing directly against
-  `brain-mcp.exe.xyz` showed otherwise: a `--vm=`-scoped token is rejected
+  the author's deployment showed otherwise: a `--vm=`-scoped token is rejected
   outright by `https://exe.dev/exec` regardless of any `cmds` setting — the
   CLI's own help text confirms `--vm` "authenticates to its HTTPS endpoints
   **instead of** exe.dev commands." The `cmds` restriction that does matter is
