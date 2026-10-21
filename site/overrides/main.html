@@ -1,0 +1,44 @@
+{#- Additions to Material's page template. build-site.sh copies site/overrides
+    beside the export, and mkdocs.yml names it as the theme's custom_dir. -#}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {#- Without use-credentials the manifest is fetched without the login cookie
+      and gets the login redirect instead. -#}
+  <link rel="manifest" href="{{ base_url }}/manifest.webmanifest" crossorigin="use-credentials">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+{% endblock %}
+
+{#- No navigation sidebar (on a phone, the drawer): Material renders the whole
+    sidebar into every page, so adding a note anywhere changed every page a
+    phone had saved offline. The tabs, breadcrumbs and folder pages navigate.
+    What is left is Material's own table-of-contents sidebar, as in base.html. -#}
+{% block site_nav %}
+  {% if "toc.integrate" not in features %}
+    {% if page.meta and page.meta.hide %}
+      {% set hidden = "hidden" if "toc" in page.meta.hide %}
+    {% endif %}
+    <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" {{ hidden }}>
+      <div class="md-sidebar__scrollwrap">
+        <div class="md-sidebar__inner">
+          {% include "partials/toc.html" %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  {{ super() }}
+  <p class="brain-reset"><a href="{{ base_url }}/reset/">Reset saved copy</a></p>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script>
+    // Saves the site for offline reading; see sw.js.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("{{ base_url }}/sw.js");
+    }
+  </script>
+{% endblock %}

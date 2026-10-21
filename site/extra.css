@@ -15,6 +15,12 @@
   }
 }
 
+/* overrides/main.html leaves out the navigation sidebar, which is also the
+   phone's drawer; its button would open an empty one. */
+.md-header__button[for="__drawer"] {
+  display: none;
+}
+
 /* The folder or date after a link in the generated lists. */
 .brain-meta {
   color: var(--md-default-fg-color--light);
@@ -26,4 +32,24 @@
 .brain-gist {
   color: var(--md-default-fg-color--light);
   font-size: 0.85em;
+}
+
+/* sw.js marks a page it served from the saved copy rather than the server. */
+body[data-brain-saved]::before {
+  content: "Saved copy — offline";
+  display: block;
+  padding: 0.3em;
+  text-align: center;
+  font-size: 0.75rem;
+  background: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+}
+
+/* The link to reset/, at the foot of every page. */
+.brain-reset {
+  margin-top: 3em;
+  font-size: 0.75em;
+}
+.brain-reset a {
+  color: var(--md-default-fg-color--light);
 }

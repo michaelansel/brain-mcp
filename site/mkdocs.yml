@@ -4,6 +4,7 @@ site_name: Brain
 docs_dir: docs
 theme:
   name: material
+  custom_dir: overrides # sw.js registration, manifest, reset link
   # Material would otherwise load its fonts from Google. The site makes no
   # requests off its own origin; system fonts it is.
   font: false
@@ -19,6 +20,8 @@ theme:
 extra_css:
   - extra.css
 # The brain holds the odd HTML file (a review template). Publish notes only.
+# (Its script files are deleted by build-site.sh: a pattern here would also
+# drop the theme's own JavaScript.)
 exclude_docs: |
   *.html
 plugins:

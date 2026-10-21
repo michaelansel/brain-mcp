@@ -134,7 +134,6 @@ def gist(body: str) -> str:
 
 
 def folder_page(docs: Path, folder: Path, days: dict[str, str], this_year: int) -> str:
-    rel = folder.relative_to(docs).as_posix()
     lines = [f"# {dir_title(folder.name)}", ""]
 
     summary = folder / "summary.md"
@@ -145,6 +144,15 @@ def folder_page(docs: Path, folder: Path, days: dict[str, str], this_year: int) 
         if surveyed:
             lines += [f"*As of {surveyed}.*", ""]
         lines += [demote(body).strip(), ""]
+
+    return "\n".join(lines + contents(docs, folder, days, this_year))
+
+
+def contents(docs: Path, folder: Path, days: dict[str, str], this_year: int) -> list[str]:
+    """A folder's subfolders, then its notes, each by title, newest first."""
+    rel = folder.relative_to(docs).as_posix()
+    rel = "" if rel == "." else rel + "/"
+    lines: list[str] = []
 
     def newest(path: str) -> str:
         return days.get(path, "")
@@ -158,7 +166,7 @@ def folder_page(docs: Path, folder: Path, days: dict[str, str], this_year: int) 
         latest = max((d for p, d in days.items() if p.startswith(sub_rel + "/")), default="")
         subdirs.append((latest, sub, target))
     notes = [
-        (newest(f"{rel}/{f.name}"), f)
+        (newest(f"{rel}{f.name}"), f)
         for f in folder.iterdir()
         if f.is_file()
         and f.suffix == ".md"
@@ -178,7 +186,7 @@ def folder_page(docs: Path, folder: Path, days: dict[str, str], this_year: int) 
         for day, f in sorted(notes, key=lambda n: (n[0], n[1].name), reverse=True):
             lines.append(row(note_title(f), f.name, day))
         lines.append("")
-    return "\n".join(lines)
+    return lines
 
 
 def folder_pages(docs: Path, days: dict[str, str], this_year: int) -> None:
@@ -259,6 +267,11 @@ def landing_page(docs: Path, changes: list[tuple[str, str]], sha: str, built: st
         if shown == RECENT:
             break
     lines.append("")
+
+    # The tabs name only the folders in nav.yml; this reaches the rest.
+    lines += ["## Everything", ""]
+    everything = contents(docs, docs, last_changed(changes), this_year)
+    lines += ["#" + line if line.startswith("## ") else line for line in everything]
     return "\n".join(lines)
 
 

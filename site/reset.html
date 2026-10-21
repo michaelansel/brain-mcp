@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- Published as reset/index.html by scripts/offline.py. sw.js never handles
+     this page, so it loads from the server however broken the saved copy is. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reset saved copy</title>
+    <style>
+      body { font: 1.1rem/1.5 system-ui, sans-serif; margin: 2rem 1rem; }
+      @media (prefers-color-scheme: dark) { body { background: #1e2129; color: #e2e4e9; } }
+    </style>
+  </head>
+  <body>
+    <p id="status">Clearing the saved copy…</p>
+    <script>
+      (async () => {
+        const regs = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : [];
+        await Promise.all(regs.map((r) => r.unregister()));
+        if (self.caches) {
+          for (const name of await caches.keys()) {
+            if (name.startsWith("brain-")) await caches.delete(name);
+          }
+        }
+        document.getElementById("status").textContent = "Cleared. Reloading…";
+        location.replace("../");
+      })().catch((e) => {
+        document.getElementById("status").textContent = `Could not clear it: ${e}`;
+      });
+    </script>
+  </body>
+</html>

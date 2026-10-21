@@ -4,8 +4,10 @@ MkDocs itself is stubbed — a fake `uvx` on PATH that copies the export it was
 handed into the output directory — so these run offline and assert on exactly
 what the script fed the builder."""
 
+import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -116,6 +118,73 @@ def test_a_failed_build_leaves_the_published_site_alone(brain, build):
 
     assert (build.site / "current").resolve() == before
     assert not list(build.site.glob("work.*"))
+
+
+def test_lists_every_published_file_for_offline_reading(brain, build):
+    assert build().returncode == 0
+    current = build.site / "current"
+    files = json.loads((current / "offline.json").read_text())["files"]
+    assert "agents.md" in files and "inbox/idea.md" in files
+    assert "manifest.webmanifest" in files and "extra.css" in files
+    assert not any(p.startswith("reset") for p in files)
+    assert "sw.js" not in files and "offline.json" not in files
+    assert (current / "reset" / "index.html").exists()
+
+
+def test_a_folder_page_is_listed_by_the_folder(brain, build, tmp_path):
+    sys.path.insert(0, str(SCRIPT.parent))
+    from offline import listing
+
+    out = tmp_path / "out"
+    (out / "areas").mkdir(parents=True)
+    (out / "index.html").write_text("home")
+    (out / "areas" / "index.html").write_text("areas")
+    (out / "areas" / "x.js.map").write_text("{}")
+    assert sorted(listing(out)) == ["", "areas/"]
+
+
+def test_the_worker_changes_exactly_when_the_site_does(brain, build):
+    def worker():
+        assert build().returncode == 0
+        return (build.site / "current" / "sw.js").read_text()
+
+    first = worker()
+    assert "__VERSION__" not in first and "brain-${VERSION}" in first
+    (brain / "inbox" / "idea.md").write_text("# Big idea, revised\n")
+    commit_all(brain, "edit")
+    assert worker() != first
+
+
+def test_offline_off_publishes_a_worker_that_clears_the_saved_copy(brain, build):
+    assert build(BRAIN_SITE_OFFLINE="0").returncode == 0
+    worker = (build.site / "current" / "sw.js").read_text()
+    assert "unregister()" in worker and "__VERSION__" not in worker
+
+
+def test_script_in_the_brain_is_never_published(brain, build):
+    (brain / "inbox" / "evil.js").write_text("self.addEventListener('fetch', () => {})\n")
+    (brain / "inbox" / "evil.mjs").write_text("export {}\n")
+    commit_all(brain, "script")
+    assert build().returncode == 0
+    current = build.site / "current"
+    assert not (current / "inbox" / "evil.js").exists()
+    assert not (current / "inbox" / "evil.mjs").exists()
+    assert (current / "inbox" / "idea.md").exists()
+
+
+def test_landing_page_lists_everything_at_the_top_level(brain, build):
+    archived = brain / "archive" / "old-plan"
+    archived.mkdir(parents=True)
+    (archived / "plan.md").write_text("# Old plan\n")
+    commit_all(brain, "archive")
+    assert build().returncode == 0
+    index = (build.site / "current" / "index.md").read_text()
+    everything = index.split("## Everything", 1)[1]
+    assert "### Folders" in everything and "### Notes" in everything
+    assert "[Archive](<archive/index.md>)" in everything
+    assert "[Inbox](<inbox/index.md>)" in everything
+    assert "](<agents.md>)" in everything
+    assert "](<index.md>)" not in everything  # not the landing page itself
 
 
 def at(day):

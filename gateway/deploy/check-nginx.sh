@@ -109,4 +109,10 @@ case "$redirect" in
     *) echo "FAIL  redirect is not relative: $redirect"; fail=1 ;;
 esac
 
+revalidate="$("$runtime" exec "$name" curl -s -D - -o /dev/null -H "$ME" http://127.0.0.1:8000/site/ | tr -d '\r' | grep -i '^cache-control:' || true)"
+case "$revalidate" in
+    "Cache-Control: no-cache") echo "ok    site pages are revalidated" ;;
+    *) echo "FAIL  site pages may be served stale: $revalidate"; fail=1 ;;
+esac
+
 [ "$fail" -eq 0 ] && echo "all checks passed" || { echo "SOME CHECKS FAILED"; exit 1; }

@@ -114,8 +114,8 @@ manual step required roughly once a year, when the minted token expires).
 A read-only website of the brain, for reading it without an agent or a clone.
 It is a static site: `scripts/build-site.sh` renders the brain with
 [MkDocs](https://www.mkdocs.org/) and the [Material](https://squidfunk.github.io/mkdocs-material/)
-theme (config in `site/mkdocs.yml`, sidebar order in `site/nav.yml`, phone tweaks
-in `site/extra.css`) and nginx serves the result at `/site/`, behind the same
+theme (config in `site/mkdocs.yml`, tabs in `site/nav.yml`, template and style
+changes in `site/overrides/` and `site/extra.css`) and nginx serves the result at `/site/`, behind the same
 login as `/mcp`. Nothing in the brain changes to make this work — no config
 file, no index, no front-matter the notes don't already have.
 
@@ -141,6 +141,34 @@ BRAIN_MCP_POST_COMMIT_CMD=/path/to/brain-mcp/scripts/build-site.sh
   recently changed notes by title under the day they changed. A failed build leaves the last
   good site in place, logs a warning (`journalctl -u brain-mcp`), and tells
   nobody — the stale commit on the landing page is the signal.
+- **Readable offline, current online.** A service worker (`site/sw.js`) saves
+  every page, search index included, from the `offline.json` list
+  `scripts/offline.py` writes into each build. Online, pages still come from
+  the server first (nginx sends `Cache-Control: no-cache`); the saved copy is
+  used only when the network fails or takes over 5 s, and says so in a banner.
+  A new build changes `sw.js`, so the next online open saves only the files
+  whose hash changed, all or nothing — a lapsed login fails the update rather
+  than saving the login page. On an iPhone, add it to the home screen
+  (`manifest.webmanifest` makes it a standalone app, whose storage Safari does
+  not evict after 7 days of disuse); re-add it once if it was added before this.
+- **If the saved copy gets stuck:** the "Reset saved copy" link at the foot of
+  every page (`/site/reset/`, which the worker never handles) deletes it and
+  starts over. To clear it on every device without touching them, rebuild with
+  `BRAIN_SITE_OFFLINE=0 BRAIN_ROOT=~/brain scripts/build-site.sh`: browsers
+  always fetch `sw.js` from the server, and that one deletes the copy and
+  unregisters itself on each device's next online open. The next ordinary
+  build turns offline back on. Failing both, delete the home-screen icon.
+- **Tabs, no sidebar.** The tabs are the folders named in `site/nav.yml`; the
+  landing page's "Everything" lists every top-level folder and note, tabbed or
+  not. There is no navigation sidebar (on a phone, the ☰ drawer): Material
+  renders the whole of it into every page, so adding a note changed every page
+  a phone had saved — ~5 MB to sync. Now an added note changes about a dozen
+  files, ~0.6 MB, nearly all of it the search index, which Material rewrites on
+  every edit and every page load fetches online anyway.
+- **No script from the brain is published**: `build-site.sh` deletes `.js` and
+  `.mjs` files from the export (an `exclude_docs` pattern would also drop the
+  theme's own). A note's own script registered as the site's service worker
+  would outlive the note.
 - **The build script lives here, not in the brain.** Anything in the brain is
   writable by every MCP client; a build script there would be code execution
   on this host for anyone who can write a note.

@@ -1,0 +1,8 @@
+{
+  "name": "Brain",
+  "short_name": "Brain",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "icons": [{ "src": "assets/images/favicon.png", "sizes": "any", "type": "image/png" }]
+}

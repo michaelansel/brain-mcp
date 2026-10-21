@@ -9,6 +9,7 @@
 #
 #   BRAIN_ROOT      the brain repo (required)
 #   BRAIN_SITE_DIR  where to publish; the web server serves $BRAIN_SITE_DIR/current
+#   BRAIN_SITE_OFFLINE=0  publish a service worker that clears phones' saved copy
 set -euo pipefail
 umask 022
 
@@ -26,9 +27,15 @@ trap 'rm -rf "$work"' EXIT
 
 mkdir "$work/docs"
 git -C "$BRAIN_ROOT" archive "$sha" | tar -x -C "$work/docs"
+# Never publish script from the brain: a note's .js plus a raw-HTML <script>
+# could register itself as the site's service worker, which would outlive the
+# note on every phone. (Not exclude_docs: that would drop the theme's own.)
+find "$work/docs" -type f \( -name '*.js' -o -name '*.mjs' \) -delete
 cp "$repo/site/mkdocs.yml" "$work/mkdocs.yml"
 cp "$repo/site/nav.yml" "$work/docs/.nav.yml"
 cp "$repo/site/extra.css" "$work/docs/extra.css"
+cp "$repo/site/manifest.webmanifest" "$work/docs/manifest.webmanifest"
+cp -R "$repo/site/overrides" "$work/overrides"
 
 # A landing page, and a page for each folder: titles rather than paths, the
 # notes that changed most recently, and the projects active this week. A page
@@ -37,6 +44,10 @@ uv run --quiet --project "$repo" --frozen python "$repo/scripts/site_pages.py" "
 
 # Material prints a banner about MkDocs 2.0 on every build; this is pinned to 1.x.
 NO_MKDOCS_2_WARNING=1 uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 --with mkdocs-awesome-nav==3.3.0 mkdocs build --quiet -f "$work/mkdocs.yml" -d "$site_dir/$release"
+
+# The list of files a phone saves for offline reading, and the service worker
+# that saves them. BRAIN_SITE_OFFLINE=0 publishes one that deletes them instead.
+python3 "$repo/scripts/offline.py" "$site_dir/$release" "$repo/site"
 
 # rename(2) over the old symlink is atomic; `ln -sfn` alone is not.
 ln -s "$release" "$work/current"
