@@ -288,3 +288,32 @@ def test_a_folder_page_the_brain_already_has_is_kept(brain, build):
     current = build.site / "current"
     assert (current / "inbox" / "index.md").read_text() == "# My inbox\n"
     assert not (current / "areas" / "index.md").exists()  # README.md is already the folder's page
+
+
+def test_projects_created_this_week_are_marked_new(brain, build):
+    old = brain / "projects" / "old-thing"
+    old.mkdir(parents=True)
+    (old / "project.md").write_text("---\nname: old-thing\ncreated: 2026-09-01\n---\n")
+    commit_on(brain, "2026-09-01", "old project")
+    (old / "notes.md").write_text("# Notes\n")
+    commit_on(brain, "2026-10-10", "old project still busy")
+    fresh = brain / "projects" / "fresh-idea"
+    fresh.mkdir()
+    (fresh / "project.md").write_text("---\nname: fresh-idea\ncreated: 2026-10-08\n---\n")
+    commit_on(brain, "2026-10-08", "fresh project")
+    hand = brain / "projects" / "hand-made"
+    hand.mkdir()
+    (hand / "plan.md").write_text("# Plan\n")  # no manifest: the first commit counts
+    commit_on(brain, "2026-10-09", "hand-made project")
+
+    assert build().returncode == 0
+    current = build.site / "current"
+    index = (current / "index.md").read_text()
+    active = index.split("## Active this week", 1)[1].split("## Recently changed", 1)[0]
+    listing = (current / "projects" / "index.md").read_text()
+    chip = '<span class="brain-chip">New</span>'
+    for text in (active, listing):
+        rows = {line.split("]")[0]: line for line in text.splitlines() if line.startswith("- [")}
+        assert chip in rows["- [Fresh idea"]
+        assert chip in rows["- [Hand made"]
+        assert chip not in rows["- [Old thing"]

@@ -93,10 +93,41 @@ def md_text(text: str) -> str:
     return re.sub(r"([\\\[\]*_`<>])", r"\\\1", text)
 
 
-def item(title: str, link: str, meta: str = "") -> str:
-    """A list item linking to a page, with a quiet note after it."""
-    after = f' <span class="brain-meta">{html.escape(meta)}</span>' if meta else ""
+def item(title: str, link: str, meta: str = "", chip: str = "") -> str:
+    """A list item linking to a page, with a chip and a quiet note after it."""
+    after = f' <span class="brain-chip">{html.escape(chip)}</span>' if chip else ""
+    after += f' <span class="brain-meta">{html.escape(meta)}</span>' if meta else ""
     return f"- [{md_text(title)}](<{link}>){after}"
+
+
+def week_start(head_day: str) -> str:
+    """The first day "this week" covers, counting HEAD's day."""
+    return (dt.date.fromisoformat(head_day) - dt.timedelta(days=ACTIVE_DAYS - 1)).isoformat()
+
+
+def new_projects(docs: Path, changes: list[tuple[str, str]], since: str) -> set[str]:
+    """Projects created on or after `since`: the manifest's `created`, else
+    the day the project's first note was committed."""
+    first: dict[str, str] = {}
+    for day, path in changes:  # newest first, so the last write wins
+        parts = path.split("/")
+        if len(parts) >= 3 and parts[0] == "projects":
+            first["/".join(parts[:2])] = day
+    new = set()
+    projects = docs / "projects"
+    for folder in sorted(projects.iterdir()) if projects.is_dir() else []:
+        if not folder.is_dir():
+            continue
+        project = f"projects/{folder.name}"
+        created = first.get(project, "")
+        manifest = folder / "project.md"
+        if manifest.is_file():
+            meta = split(manifest.read_text(encoding="utf-8", errors="replace"))[0] or {}
+            if meta.get("created"):
+                created = str(meta["created"])[:10]
+        if created and created >= since:
+            new.add(project)
+    return new
 
 
 def index_page(docs: Path, folder: Path) -> Path | None:
@@ -133,7 +164,9 @@ def gist(body: str) -> str:
     return ""
 
 
-def folder_page(docs: Path, folder: Path, days: dict[str, str], this_year: int) -> str:
+def folder_page(
+    docs: Path, folder: Path, days: dict[str, str], this_year: int, new: set[str]
+) -> str:
     lines = [f"# {dir_title(folder.name)}", ""]
 
     summary = folder / "summary.md"
@@ -145,11 +178,14 @@ def folder_page(docs: Path, folder: Path, days: dict[str, str], this_year: int) 
             lines += [f"*As of {surveyed}.*", ""]
         lines += [demote(body).strip(), ""]
 
-    return "\n".join(lines + contents(docs, folder, days, this_year))
+    return "\n".join(lines + contents(docs, folder, days, this_year, new))
 
 
-def contents(docs: Path, folder: Path, days: dict[str, str], this_year: int) -> list[str]:
-    """A folder's subfolders, then its notes, each by title, newest first."""
+def contents(
+    docs: Path, folder: Path, days: dict[str, str], this_year: int, new: set[str]
+) -> list[str]:
+    """A folder's subfolders, then its notes, each by title, newest first;
+    a project in `new` gets a chip."""
     rel = folder.relative_to(docs).as_posix()
     rel = "" if rel == "." else rel + "/"
     lines: list[str] = []
@@ -173,13 +209,14 @@ def contents(docs: Path, folder: Path, days: dict[str, str], this_year: int) -> 
         and f.name not in ("index.md", "README.md", "summary.md")
     ]
 
-    def row(title: str, link: str, day: str) -> str:
-        return item(title, link, day_label(day, this_year, weekday=False) if day else "")
+    def row(title: str, link: str, day: str, chip: str = "") -> str:
+        return item(title, link, day_label(day, this_year, weekday=False) if day else "", chip)
 
     if subdirs:
         lines += ["## Folders", ""]
         for day, sub, target in sorted(subdirs, key=lambda s: (s[0], s[1].name), reverse=True):
-            lines.append(row(dir_title(sub.name), target.relative_to(folder).as_posix(), day))
+            chip = "New" if sub.relative_to(docs).as_posix() in new else ""
+            lines.append(row(dir_title(sub.name), target.relative_to(folder).as_posix(), day, chip))
         lines.append("")
     if notes:
         lines += ["## Notes", ""]
@@ -189,7 +226,7 @@ def contents(docs: Path, folder: Path, days: dict[str, str], this_year: int) -> 
     return lines
 
 
-def folder_pages(docs: Path, days: dict[str, str], this_year: int) -> None:
+def folder_pages(docs: Path, days: dict[str, str], this_year: int, new: set[str]) -> None:
     """An index.md for each folder that holds notes, deepest first so a
     parent can link to the page just made for its child."""
     folders = [
@@ -204,14 +241,14 @@ def folder_pages(docs: Path, days: dict[str, str], this_year: int) -> None:
         has_pages = any(index_page(docs, s) for s in folder.iterdir() if s.is_dir())
         if has_notes or has_pages:
             (folder / "index.md").write_text(
-                folder_page(docs, folder, days, this_year), encoding="utf-8"
+                folder_page(docs, folder, days, this_year, new), encoding="utf-8"
             )
 
 
 def active_projects(
-    docs: Path, changes: list[tuple[str, str]], head_day: str, this_year: int
+    docs: Path, changes: list[tuple[str, str]], head_day: str, this_year: int, new: set[str]
 ) -> list[str]:
-    since = (dt.date.fromisoformat(head_day) - dt.timedelta(days=ACTIVE_DAYS - 1)).isoformat()
+    since = week_start(head_day)
     seen: dict[str, tuple[str, set[str]]] = {}
     for day, path in changes:
         parts = path.split("/")
@@ -234,6 +271,7 @@ def active_projects(
             dir_title(project.split("/")[1]),
             target.relative_to(docs).as_posix(),
             f"{len(notes)} note{plural} changed · {when}",
+            "New" if project in new else "",
         )
         summary = docs / project / "summary.md"
         if summary.is_file():
@@ -244,12 +282,14 @@ def active_projects(
     return rows
 
 
-def landing_page(docs: Path, changes: list[tuple[str, str]], sha: str, built: str) -> str:
+def landing_page(
+    docs: Path, changes: list[tuple[str, str]], sha: str, built: str, new: set[str]
+) -> str:
     head_day = changes[0][0] if changes else built[:10]
     this_year = dt.date.fromisoformat(head_day).year
     lines = ["# Brain", "", f"Built {built} from commit `{sha[:12]}`.", ""]
 
-    active = active_projects(docs, changes, head_day, this_year)
+    active = active_projects(docs, changes, head_day, this_year, new)
     if active:
         lines += ["## Active this week", "", *active, ""]
 
@@ -270,7 +310,7 @@ def landing_page(docs: Path, changes: list[tuple[str, str]], sha: str, built: st
 
     # The tabs name only the folders in nav.yml; this reaches the rest.
     lines += ["## Everything", ""]
-    everything = contents(docs, docs, last_changed(changes), this_year)
+    everything = contents(docs, docs, last_changed(changes), this_year, new)
     lines += ["#" + line if line.startswith("## ") else line for line in everything]
     return "\n".join(lines)
 
@@ -279,12 +319,16 @@ def main(argv: list[str]) -> None:
     docs, root, sha, built = Path(argv[1]), Path(argv[2]), argv[3], argv[4]
     changes = history(root, sha)
     days = last_changed(changes)
-    this_year = dt.date.fromisoformat(changes[0][0] if changes else built[:10]).year
+    head_day = changes[0][0] if changes else built[:10]
+    this_year = dt.date.fromisoformat(head_day).year
+    new = new_projects(docs, changes, week_start(head_day))
     own_landing = (docs / "index.md").exists()
     # Folder pages first: the landing page links each active project to one.
-    folder_pages(docs, days, this_year)
+    folder_pages(docs, days, this_year, new)
     if not own_landing:
-        (docs / "index.md").write_text(landing_page(docs, changes, sha, built), encoding="utf-8")
+        (docs / "index.md").write_text(
+            landing_page(docs, changes, sha, built, new), encoding="utf-8"
+        )
 
 
 if __name__ == "__main__":

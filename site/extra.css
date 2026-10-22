@@ -28,6 +28,20 @@
   margin-left: 0.3em;
 }
 
+/* "New" beside a project created this week. */
+.brain-chip {
+  display: inline-block;
+  margin-left: 0.4em;
+  padding: 0.1em 0.5em;
+  border-radius: 1em;
+  font-size: 0.7em;
+  line-height: 1.4;
+  vertical-align: middle;
+  white-space: nowrap;
+  background: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+}
+
 /* The first lines of a project's summary on the landing page. */
 .brain-gist {
   color: var(--md-default-fg-color--light);
