@@ -128,7 +128,7 @@ def test_lists_every_published_file_for_offline_reading(brain, build):
     assert "manifest.webmanifest" in files and "extra.css" in files
     assert "icons/icon-180.png" in files  # the home-screen icon
     assert not any(p.startswith("reset") for p in files)
-    assert "sw.js" not in files and "offline.json" not in files
+    assert "sw.js" not in files and "offline.json" not in files and "version.txt" not in files
     assert (current / "reset" / "index.html").exists()
 
 
@@ -144,22 +144,36 @@ def test_a_folder_page_is_listed_by_the_folder(brain, build, tmp_path):
     assert sorted(listing(out)) == ["", "areas/"]
 
 
-def test_the_worker_changes_exactly_when_the_site_does(brain, build):
-    def worker():
+def test_version_changes_exactly_when_the_site_does(brain, build):
+    def published():
         assert build().returncode == 0
-        return (build.site / "current" / "sw.js").read_text()
+        current = build.site / "current"
+        return (current / "version.txt").read_text(), (current / "sw.js").read_text()
 
-    first = worker()
-    assert "__VERSION__" not in first and "brain-${VERSION}" in first
+    version, worker = published()
     (brain / "inbox" / "idea.md").write_text("# Big idea, revised\n")
     commit_all(brain, "edit")
-    assert worker() != first
+    new_version, new_worker = published()
+    assert new_version != version
+    # The notes are the worker's job to fetch: the worker itself is unchanged,
+    # so the browser does not reinstall it for a build of the notes.
+    assert new_worker == worker
+
+
+def test_version_is_the_hash_the_worker_computes_of_offline_json(brain, build):
+    import hashlib
+
+    assert build().returncode == 0
+    current = build.site / "current"
+    listing = (current / "offline.json").read_bytes()
+    assert (current / "version.txt").read_text().strip() == hashlib.sha256(listing).hexdigest()[:16]
+    assert "version.txt" not in json.loads(listing)["files"]
 
 
 def test_offline_off_publishes_a_worker_that_clears_the_saved_copy(brain, build):
     assert build(BRAIN_SITE_OFFLINE="0").returncode == 0
     worker = (build.site / "current" / "sw.js").read_text()
-    assert "unregister()" in worker and "__VERSION__" not in worker
+    assert "unregister()" in worker
 
 
 def test_script_in_the_brain_is_never_published(brain, build):

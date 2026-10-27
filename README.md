@@ -141,13 +141,20 @@ BRAIN_MCP_POST_COMMIT_CMD=/path/to/brain-mcp/scripts/build-site.sh
   recently changed notes by title under the day they changed. A failed build leaves the last
   good site in place, logs a warning (`journalctl -u brain-mcp`), and tells
   nobody — the stale commit on the landing page is the signal.
-- **Readable offline, current online.** A service worker (`site/sw.js`) saves
-  every page, search index included, from the `offline.json` list
-  `scripts/offline.py` writes into each build. Online, pages still come from
-  the server first (nginx sends `Cache-Control: no-cache`); the saved copy is
-  used only when the network fails or takes over 5 s, and says so in a banner.
-  A new build changes `sw.js`, so the next online open saves only the files
-  whose hash changed, all or nothing — a lapsed login fails the update rather
+- **Readable offline, and quick online.** A service worker (`site/sw.js`)
+  saves every page, search index included, from the `offline.json` list
+  `scripts/offline.py` writes into each build: every file with a hash of its
+  content. Opening a page asks the server one thing, `version.txt` (a hash of
+  `offline.json`); if that names the build already saved, the page and
+  everything it loads come from the saved copy. If it names a newer build,
+  the worker fetches the new `offline.json`, keeps using every saved file
+  whose hash is unchanged, fetches a changed one the page needs, and saves
+  the rest in the background — pages first, the search index last, each
+  usable as soon as it is saved, so search runs on the previous index until
+  then. A page whose saved copy changes while it is open offers to reload. If
+  `version.txt` doesn't answer within 0.8 s, or the login has lapsed, the
+  saved copy is shown with a banner saying so (and, for the login, a link
+  that goes to the server). A redirect stops a save rather
   than saving the login page. On an iPhone, add it to the home screen
   (`manifest.webmanifest` makes it a standalone app, whose storage Safari does
   not evict after 7 days of disuse); re-add it once if it was added before this.

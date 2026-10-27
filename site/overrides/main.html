@@ -31,6 +31,9 @@
 {% endblock %}
 
 {% block content %}
+  {#- Shown by extra.css only on a saved copy shown because the login lapsed.
+      ?network tells sw.js to leave the request to the server, and its login. -#}
+  <p class="brain-login"><a href="?network">Sign in to update</a></p>
   {{ super() }}
   <p class="brain-reset"><a href="{{ base_url }}/reset/">Reset saved copy</a></p>
 {% endblock %}
@@ -41,6 +44,16 @@
     // Saves the site for offline reading; see sw.js.
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("{{ base_url }}/sw.js");
+      // sw.js says so when it has saved a newer copy of the page on screen.
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.brain !== "updated" || document.querySelector(".brain-updated")) return;
+        const bar = document.createElement("a");
+        bar.className = "brain-updated";
+        bar.href = location.href;
+        bar.textContent = "Updated — tap to reload";
+        bar.addEventListener("click", (e) => (e.preventDefault(), location.reload()));
+        document.body.prepend(bar);
+      });
     }
   </script>
 {% endblock %}

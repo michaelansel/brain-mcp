@@ -48,14 +48,42 @@
   font-size: 0.85em;
 }
 
-/* sw.js marks a page it served from the saved copy rather than the server. */
+/* sw.js marks a page it served from the saved copy without confirming that
+   copy is current: offline, a slow server, or a lapsed login. */
 body[data-brain-saved]::before {
-  content: "Saved copy — offline";
+  content: "Saved copy — couldn't reach the server";
   display: block;
   padding: 0.3em;
   text-align: center;
   font-size: 0.75rem;
   background: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+}
+
+body[data-brain-saved="login"]::before {
+  content: "Saved copy — your login has lapsed";
+}
+.brain-login {
+  display: none;
+}
+body[data-brain-saved="login"] .brain-login {
+  display: block;
+}
+
+/* main.html adds this when sw.js has saved a newer copy of the page shown. */
+.brain-updated {
+  position: fixed;
+  z-index: 10;
+  bottom: 1em;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.5em 1em;
+  border-radius: 1em;
+  font-size: 0.8rem;
+  background: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+}
+.brain-updated:hover {
   color: var(--md-accent-bg-color);
 }
 
