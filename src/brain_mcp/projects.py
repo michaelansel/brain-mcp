@@ -7,6 +7,7 @@ delegated-interrogation module (`ask`) would drop in beside this one.
 from __future__ import annotations
 
 import os
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ from brain_mcp.gitio import commit_message, commit_paths, head_sha, run_git, wri
 from brain_mcp.pathsafe import confine, rel
 
 PROJECTS_DIR = "projects"
+
+# Owners go into YAML frontmatter unquoted, and callers choose them.
+_SLUG_RE = re.compile(r"[a-z][a-z0-9-]*")
 
 READ_ONLY = {"readOnlyHint": True, "openWorldHint": False}
 # Purely additive: errors if the project already exists rather than
@@ -62,6 +66,7 @@ def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
                     "status": str(meta.get("status", "unknown")),
                     "path": f"{PROJECTS_DIR}/{entry.name}",
                     "repo_count": len(repos) if isinstance(repos, list) else 0,
+                    "owner": _owner_list(meta.get("owner")),
                 }
             )
         if summaries_too:
@@ -111,10 +116,20 @@ def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
     @mcp.tool(annotations=ADDITIVE_ONLY)
     @git_guard
     async def project_create(
-        name: str, summary: str, from_path: str | None = None
+        name: str, summary: str, owner: list[str], from_path: str | None = None
     ) -> dict[str, Any]:
         """Scaffold projects/<name>/project.md. If from_path names a note
-        (e.g. in inbox/), move it into the new project in the same commit."""
+        (e.g. in inbox/), move it into the new project in the same commit.
+
+        `owner` is who the project is for: whoever asked for it, as lowercase
+        slugs (usually a first name), several if it is shared. If you are not
+        sure who that is, ask them. Pass [] only when there is nobody to ask."""
+        for slug in owner:
+            if not _SLUG_RE.fullmatch(slug):
+                raise ToolError(
+                    f"invalid owner '{slug}'; use a lowercase slug such as a first name "
+                    f"(letters, digits, hyphens), or [] if there is nobody to ask"
+                )
         pdir = _project_dir(root, name)
         manifest = pdir / "project.md"
         if manifest.exists():
@@ -132,6 +147,7 @@ def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
             "---\n"
             f"name: {name}\n"
             "status: active\n"
+            f"owner: [{', '.join(owner)}]\n"
             f"created: {date.today().isoformat()}\n"
             "repos: []\n"
             "---\n"
@@ -154,6 +170,16 @@ def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
             msg = commit_message("project_create", f"{PROJECTS_DIR}/{name}")
             sha = await commit_paths(root, commit_targets, msg)
         return {"path": f"{PROJECTS_DIR}/{name}", "commit": sha, "message": msg.splitlines()[0]}
+
+
+def _owner_list(raw: Any) -> list[str]:
+    """A manifest's `owner` as a list. Frontmatter is hand-edited, so a bare
+    string is accepted; a missing key is no owner rather than an assumed one."""
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
+        return [str(item) for item in raw]
+    return []
 
 
 async def _summary_fields(root: Path, folder: str, config: BrainConfig) -> dict[str, Any]:

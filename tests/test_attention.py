@@ -133,4 +133,4 @@ async def test_the_survey_carries_counts_and_staleness(client, config):
 
 async def test_the_plain_survey_stays_frontmatter_only(client, config):
     listed = data(await client.call_tool("projects", {}))
-    assert set(listed[0]) == {"name", "status", "path", "repo_count"}
+    assert set(listed[0]) == {"name", "status", "path", "repo_count", "owner"}

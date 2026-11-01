@@ -209,9 +209,9 @@ ever adds (it errors rather than overwriting an existing project).
 
 **Projects**
 
-- `projects(summaries_too=False)` — every project with `name`, `status`, `path`, `repo_count`. Reads only frontmatter, so it stays fast with hundreds of projects. `summaries_too` adds per-project summary staleness and read counts — the list of what is worth refreshing, in one call — at a couple of git calls per project, which is why it is opt-in.
+- `projects(summaries_too=False)` — every project with `name`, `status`, `path`, `repo_count`, `owner` (always a list; `[]` if unknown). Reads only frontmatter, so it stays fast with hundreds of projects. `summaries_too` adds per-project summary staleness and read counts — the list of what is worth refreshing, in one call — at a couple of git calls per project, which is why it is opt-in.
 - `project(name)` — frontmatter, `project.md` prose, and a recursive file listing. Also `summary_stale` if the project's summary has fallen behind, or `summary` explaining none has been written.
-- `project_create(name, summary, from_path=None)` — scaffold `projects/<name>/project.md`; with `from_path` (a note in `inbox/`), the note moves into the new project **in the same commit**.
+- `project_create(name, summary, owner, from_path=None)` — scaffold `projects/<name>/project.md`. `owner` is required: a list of lowercase slugs naming who the project is for, or `[]` when there is nobody to ask. It is the caller's claim, a hint and not an access control. With `from_path` (a note in `inbox/`), the note moves into the new project **in the same commit**.
 
 ### Folder summaries
 

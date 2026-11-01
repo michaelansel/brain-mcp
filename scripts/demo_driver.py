@@ -40,6 +40,7 @@ async def main() -> None:
                 await client.call_tool(
                     "project_create",
                     {
+                        "owner": [],
                         "name": "rocket",
                         "summary": "Build a small sounding rocket.",
                         "from_path": "inbox/rocket-idea.md",

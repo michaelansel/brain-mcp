@@ -31,7 +31,12 @@ async def test_full_flow_in_memory(brain, client):
     created = data(
         await client.call_tool(
             "project_create",
-            {"name": "rocket", "summary": "Build a rocket.", "from_path": "inbox/idea.md"},
+            {
+                "owner": [],
+                "name": "rocket",
+                "summary": "Build a rocket.",
+                "from_path": "inbox/idea.md",
+            },
         )
     )
     assert created["path"] == "projects/rocket"
@@ -66,7 +71,13 @@ async def test_full_flow_in_memory(brain, client):
 
     summaries = data(await client.call_tool("projects", {}))
     assert summaries == [
-        {"name": "rocket", "status": "active", "path": "projects/rocket", "repo_count": 0}
+        {
+            "name": "rocket",
+            "status": "active",
+            "path": "projects/rocket",
+            "repo_count": 0,
+            "owner": [],
+        }
     ]
 
     # three mutations -> exactly three commits on top of the seed

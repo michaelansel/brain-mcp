@@ -150,7 +150,11 @@ async def test_move_does_not_strand_a_hash(brain, client):
 async def test_move_delete_project_create_need_no_hash(brain, client):
     data(await client.call_tool("move", {"src": "inbox/idea.md", "dst": "areas/idea.md"}))
     data(await client.call_tool("delete", {"path": "areas/idea.md"}))
-    data(await client.call_tool("project_create", {"name": "rocket", "summary": "Build it."}))
+    data(
+        await client.call_tool(
+            "project_create", {"owner": [], "name": "rocket", "summary": "Build it."}
+        )
+    )
 
 
 async def test_check_can_be_disabled(brain):
