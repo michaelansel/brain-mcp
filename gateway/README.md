@@ -62,10 +62,25 @@ BRAIN_ROOT=~/brain BRAIN_MCP_EXEDEV_EMAILS=you@example.com BRAIN_MCP_PORT=4001 \
   uv run brain-mcp --transport http
 ```
 
-**4. Edit `deploy/nginx.conf`**: replace `allowed-email@example.com` with the
-same email already on `BRAIN_MCP_EXEDEV_EMAILS` above, then start nginx with
-that config listening on `127.0.0.1:8000` (the port `share port` already
-targets — no exe.dev-side change needed). This file also restricts `/register`
+**4. Render `deploy/nginx.conf`** with the same email already on
+`BRAIN_MCP_EXEDEV_EMAILS` above, then start nginx with the result listening on
+`127.0.0.1:8000` (the port `share port` already targets — no exe.dev-side
+change needed):
+
+```sh
+BRAIN_OWNER_EMAIL=you@example.com \
+BRAIN_SITE_READER_EMAILS=reader@example.com \
+  gateway/deploy/render-nginx.sh | sudo tee /etc/nginx/sites-available/oauth-gateway >/dev/null
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+| Variable | Meaning |
+|---|---|
+| `BRAIN_OWNER_EMAIL` | Required. The one exe.dev identity that reaches `/mcp` (and the site). |
+| `BRAIN_SITE_READER_EMAILS` | Optional, comma-separated. exe.dev identities that may read `/site/` and nothing else; `/mcp` answers them as it answers a stranger. Each one also needs the VM shared with them (`ssh exe.dev share add <vm> reader@example.com`, Web access, never `--root`), or exe.dev's login stops them first. Never add them to `BRAIN_MCP_EXEDEV_EMAILS`. |
+
+Neither has a default; the script refuses anything that isn't plainly an
+email address, so a value can't change the config's meaning. This file also restricts `/register`
 and `/token` to Anthropic's published outbound IP range
 (`160.79.104.0/21`) — those two are always server-to-server calls from
 Claude's backend, never a browser, so this is a free extra layer on top of the
@@ -95,7 +110,8 @@ uv run --directory gateway oauth-gateway
 
 `deploy/nginx.conf` is **default closed**. One rule at the top of the server
 block refuses every request that does not carry the allowed `X-ExeDev-Email`,
-before any location is chosen. The only exceptions are the six OAuth paths
+before any location is chosen. A site reader (`BRAIN_SITE_READER_EMAILS`)
+passes it for `/site/` and `/` only. The only exceptions are the six OAuth paths
 named in its `$edge_only` list — they have to work for a caller with no
 identity yet, so they rely on exe.dev's edge alone. Everything else, including
 the brain site at `/site/` and any location added later, is closed until it is
@@ -118,8 +134,27 @@ Before deploying any change to that file, run it for real:
 gateway/deploy/check-nginx.sh     # needs finch, or CONTAINER=docker
 ```
 
-It starts the config in a container and requests every kind of path with no
-identity, the wrong one, and the right one.
+It renders the config with invented identities, starts it in a container and
+requests every kind of path with no identity, the wrong one, a site reader's,
+and the owner's.
+
+### What a site reader can reach
+
+Sharing the VM with someone (`share add`, Web access) lets their exe.dev login
+through the edge for **every** HTTP port it forwards, not just this one: per
+exe.dev's proxy docs, ports 3000–9999 are reachable at `https://<vm>.exe.xyz:<port>/`
+by anyone with access to the VM. nginx never sees those requests. So:
+
+- brain-mcp's own `BRAIN_MCP_EXEDEV_EMAILS` is what keeps a reader off its
+  port (4001); it must name the owner only.
+- The gateway's port (9000) is reachable directly, without nginx's
+  Anthropic-only rule on `/register` and `/token`. The redirect-URI and GitHub
+  id allowlists still hold.
+- Anything else listening on the VM in that range is reachable too. Check
+  with `ss -ltnp` before sharing.
+
+Root access (`--root`) would give SSH and with it the brain's files; never
+grant it to a reader.
 
 ## Connecting Claude.ai (and reconnecting when the token expires)
 

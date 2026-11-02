@@ -16,6 +16,11 @@ name="brain-nginx-check-$$"
 tmp="$(mktemp -d)"
 trap '"$runtime" rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT
 
+# The config as it would be deployed, with invented identities.
+BRAIN_OWNER_EMAIL=allowed-email@example.com \
+BRAIN_SITE_READER_EMAILS=site-reader@example.com \
+    ./render-nginx.sh >"$tmp/nginx.conf"
+
 # Stand-ins for the OAuth gateway (:9000) and brain-mcp (:4001).
 cat >"$tmp/stubs.conf" <<'EOF'
 server { listen 127.0.0.1:9000; location / { return 200 "gateway\n"; } }
@@ -27,7 +32,7 @@ echo "a note" >"$tmp/site/release/areas/index.html"
 ln -s release "$tmp/site/current"
 
 "$runtime" run -d --name "$name" \
-    -v "$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+    -v "$tmp/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
     -v "$tmp/stubs.conf:/etc/nginx/conf.d/stubs.conf:ro" \
     -v "$tmp/site:/var/www/brain-site:ro" \
     nginx:alpine >/dev/null
@@ -39,6 +44,7 @@ done
 
 ME="X-ExeDev-Email: allowed-email@example.com"
 OTHER="X-ExeDev-Email: someone-else@example.com"
+READER="X-ExeDev-Email: site-reader@example.com"
 ANTHROPIC="X-Forwarded-For: 160.79.104.10"
 ELSEWHERE="X-Forwarded-For: 203.0.113.9"
 fail=0
@@ -84,6 +90,21 @@ check 404 "root"          / -H "$OTHER"
 check 401 "mcp"           /mcp -H "$OTHER"
 check 404 "two identities" /site/ -H "$OTHER" -H "$ME"
 check 404 "two identities, reversed" /site/ -H "$ME" -H "$OTHER"
+
+echo "--- a site reader: the site, and nothing else"
+check 200 "site"                      /site/ -H "$READER"
+check 200 "site page"                 /site/areas/ -H "$READER"
+check 302 "site, no slash"            /site -H "$READER"
+check 302 "root goes to the site"     / -H "$READER"
+check 404 "site as a prefix"          /sitemap -H "$READER"
+check 401 "mcp"                       /mcp -H "$READER"
+check 404 "mcp with a suffix"         /mcp/ -H "$READER"
+check 401 "traversal onto mcp"        /site/../mcp -H "$READER"
+check 404 "unknown path"              /anything -H "$READER"
+# nginx compares map strings ignoring case, as brain-mcp's own allowlist does.
+check 200 "reader in another case"    /site/ -H "X-ExeDev-Email: Site-Reader@example.com"
+check 404 "reader plus someone else"  /site/ -H "$READER" -H "$OTHER"
+check 401 "reader plus owner on mcp"  /mcp -H "$READER" -H "$ME"
 
 echo "--- the allowed identity"
 check 200 "site"                  /site/ -H "$ME"

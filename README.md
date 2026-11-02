@@ -116,7 +116,8 @@ It is a static site: `scripts/build-site.sh` renders the brain with
 [MkDocs](https://www.mkdocs.org/) and the [Material](https://squidfunk.github.io/mkdocs-material/)
 theme (config in `site/mkdocs.yml`, tabs in `site/nav.yml`, template and style
 changes in `site/overrides/` and `site/extra.css`) and nginx serves the result at `/site/`, behind the same
-login as `/mcp`. Nothing in the brain changes to make this work — no config
+login as `/mcp`. Other people can be let in to read the site only, with
+`BRAIN_SITE_READER_EMAILS` (see `gateway/README.md`). Nothing in the brain changes to make this work — no config
 file, no index, no front-matter the notes don't already have.
 
 ```sh
