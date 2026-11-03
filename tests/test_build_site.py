@@ -187,6 +187,17 @@ def test_script_in_the_brain_is_never_published(brain, build):
     assert (current / "inbox" / "idea.md").exists()
 
 
+def test_mermaid_is_published_and_saved_for_offline_reading(brain, build):
+    import re
+
+    template = (SCRIPT.parent.parent / "site" / "overrides" / "main.html").read_text()
+    script = re.search(r'/vendor/(mermaid-[\d.]+\.min\.js)"', template).group(1)
+    assert build().returncode == 0
+    current = build.site / "current"
+    assert (current / "vendor" / script).exists()  # the version the page loads
+    assert f"vendor/{script}" in json.loads((current / "offline.json").read_text())["files"]
+
+
 def test_landing_page_lists_everything_at_the_top_level(brain, build):
     archived = brain / "archive" / "old-plan"
     archived.mkdir(parents=True)

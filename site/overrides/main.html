@@ -55,5 +55,30 @@
         document.body.prepend(bar);
       });
     }
+
+    // Draws ```mermaid blocks as diagrams, here in the browser. The library is
+    // site/vendor's copy, never a CDN, and is loaded only on a page that has
+    // one. If it cannot load, the block stays as code.
+    (() => {
+      const blocks = document.querySelectorAll("pre > code.language-mermaid");
+      if (!blocks.length) return;
+      const script = document.createElement("script");
+      script.src = "{{ base_url }}/vendor/mermaid-12.2.0.min.js";
+      script.onload = () => {
+        const dark = document.body.getAttribute("data-md-color-scheme") === "slate";
+        // strict: a note's diagram gets no script and no clickable callbacks.
+        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });
+        const nodes = [];
+        for (const code of blocks) {
+          const div = document.createElement("div");
+          div.className = "brain-mermaid";
+          div.textContent = code.textContent;
+          code.parentElement.replaceWith(div);
+          nodes.push(div);
+        }
+        mermaid.run({ nodes, suppressErrors: true });
+      };
+      document.head.append(script);
+    })();
   </script>
 {% endblock %}

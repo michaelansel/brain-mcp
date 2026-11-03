@@ -95,3 +95,11 @@ body[data-brain-saved="login"] .brain-login {
 .brain-reset a {
   color: var(--md-default-fg-color--light);
 }
+
+/* A mermaid diagram main.html has drawn. A wide one scrolls sideways on a
+   phone rather than shrinking past reading. */
+.brain-mermaid {
+  margin: 1em 0;
+  overflow-x: auto;
+  text-align: center;
+}

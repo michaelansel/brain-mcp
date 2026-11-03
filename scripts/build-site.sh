@@ -36,6 +36,9 @@ cp "$repo/site/nav.yml" "$work/docs/.nav.yml"
 cp "$repo/site/extra.css" "$work/docs/extra.css"
 cp "$repo/site/manifest.webmanifest" "$work/docs/manifest.webmanifest"
 cp -R "$repo/site/icons" "$work/docs/icons"
+# Mermaid, for notes with diagrams (see overrides/main.html). It is listed for
+# offline reading like any file, so a phone downloads it once per version.
+cp -R "$repo/site/vendor" "$work/docs/vendor"
 cp -R "$repo/site/overrides" "$work/overrides"
 
 # A landing page, and a page for each folder: titles rather than paths, the
