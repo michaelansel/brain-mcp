@@ -12,12 +12,20 @@
 // copy and each changed one from the server, and saves the changed files in
 // the background, pages first and the search index last. Each file is used
 // as soon as it is saved, and a sync cut short resumes where it stopped.
+//
+// The brain's own HTML pages are served sandboxed, as nginx serves them (see
+// $site_sandbox in gateway/deploy/nginx.conf): this worker adds the same
+// header to every copy it hands out, saved ones included. Without that, a page
+// shown offline would run its script on the site's origin, with this worker's
+// caches in reach. tests/test_build_site.py checks the two policies match.
 const CONTENT = "brain-content"; // the saved files, kept across builds
 const STATE = "brain-state"; // what the saved files are: see load()
 const BUDGET = 800; // ms to wait for version.txt before using the saved copy
 const TIMEOUT = 5000; // ms to wait for a changed file before using the saved one
 const PARALLEL = 6;
 const SEARCH = "search/search_index.json";
+const SANDBOX =
+  "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads";
 const root = new URL("./", self.location); // the site root, wherever it is mounted
 const at = (path) => new URL(path, root).href;
 
@@ -67,8 +75,22 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(caches.match(url.href, { ignoreSearch: true }).then((r) => r || fetch(event.request)));
     return;
   }
-  event.respondWith(respond(event));
+  event.respondWith(respond(event).then((res) => sandbox(event.request.url, res)));
 });
+
+// A brain HTML page: every .html but the index.html pages MkDocs renders (a
+// brain file of that name is never published). The same rule as nginx's.
+function sandboxed(path) {
+  return /\.html$/i.test(path) && !/(^|\/)index\.html$/i.test(path);
+}
+
+// The response with the sandbox policy added, if it is a brain HTML page.
+function sandbox(href, res) {
+  if (!res || !res.ok || !sandboxed(pathOf(href))) return res;
+  const headers = new Headers(res.headers);
+  headers.set("Content-Security-Policy", SANDBOX);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
 
 async function respond(event) {
   const request = event.request;
@@ -286,7 +308,9 @@ async function saved(request, mark) {
   const cache = await caches.open(CONTENT);
   const hit = await cache.match(url.href);
   const navigate = request.mode === "navigate";
-  if (hit) return navigate && mark !== undefined ? marked(hit, mark) : hit;
+  // A brain HTML page is never marked: marked() rewrites its text.
+  const tag = navigate && mark !== undefined && !sandboxed(pathOf(url.href));
+  if (hit) return tag ? marked(hit, mark) : hit;
   if (!url.pathname.endsWith("/") && (await cache.match(url.href + "/"))) {
     return Response.redirect(url.href + "/", 301); // as nginx would
   }

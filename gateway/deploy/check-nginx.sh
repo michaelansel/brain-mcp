@@ -29,6 +29,7 @@ EOF
 mkdir -p "$tmp/site/release/areas"
 echo "site index" >"$tmp/site/release/index.html"
 echo "a note" >"$tmp/site/release/areas/index.html"
+echo "<title>A page</title>" >"$tmp/site/release/areas/view.html"
 ln -s release "$tmp/site/current"
 
 "$runtime" run -d --name "$name" \
@@ -65,6 +66,7 @@ check() {
 echo "--- no identity: everything is closed except the OAuth paths"
 check 404 "site"                    /site/
 check 404 "site page"               /site/areas/
+check 404 "brain HTML page"         /site/areas/view.html
 check 404 "site, no slash"          /site
 check 404 "root"                    /
 check 404 "unknown path"            /anything
@@ -94,6 +96,7 @@ check 404 "two identities, reversed" /site/ -H "$ME" -H "$OTHER"
 echo "--- a site reader: the site, and nothing else"
 check 200 "site"                      /site/ -H "$READER"
 check 200 "site page"                 /site/areas/ -H "$READER"
+check 200 "brain HTML page"           /site/areas/view.html -H "$READER"
 check 302 "site, no slash"            /site -H "$READER"
 check 302 "root goes to the site"     / -H "$READER"
 check 404 "site as a prefix"          /sitemap -H "$READER"
@@ -109,6 +112,7 @@ check 401 "reader plus owner on mcp"  /mcp -H "$READER" -H "$ME"
 echo "--- the allowed identity"
 check 200 "site"                  /site/ -H "$ME"
 check 200 "site page"             /site/areas/ -H "$ME"
+check 200 "brain HTML page"       /site/areas/view.html -H "$ME"
 check 301 "site page, no slash"   /site/areas -H "$ME"
 check 302 "site, no slash"        /site -H "$ME"
 check 302 "root goes to the site" / -H "$ME"
@@ -135,5 +139,35 @@ case "$revalidate" in
     "Cache-Control: no-cache") echo "ok    site pages are revalidated" ;;
     *) echo "FAIL  site pages may be served stale: $revalidate"; fail=1 ;;
 esac
+
+# header <path> <field> [curl args...]: that response header's value, or nothing.
+header() {
+    local path="$1" field="$2"
+    shift 2
+    "$runtime" exec "$name" curl -s -D - -o /dev/null "$@" "http://127.0.0.1:8000$path" |
+        tr -d '\r' | grep -i "^$field:" | cut -d' ' -f2- || true
+}
+
+# expect_header <path> <header> <wanted value, empty for absent> <description> [curl args...]
+expect_header() {
+    local path="$1" hdr="$2" want="$3" what="$4" got
+    shift 4
+    got="$(header "$path" "$hdr" "$@")"
+    if [ "$got" = "$want" ]; then
+        printf 'ok    %-58s %s\n' "$path" "$what"
+    else
+        printf 'FAIL  %-58s %s (got "%s", wanted "%s")\n' "$path" "$what" "$got" "$want"
+        fail=1
+    fi
+}
+
+echo "--- the brain's HTML pages are sandboxed; the site's own pages are not"
+sandbox="sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+expect_header /site/areas/view.html Content-Security-Policy "$sandbox" "brain HTML page, owner" -H "$ME"
+expect_header /site/areas/view.html Content-Security-Policy "$sandbox" "brain HTML page, reader" -H "$READER"
+expect_header /site/areas/view.html Cache-Control "no-cache" "still revalidated" -H "$ME"
+expect_header /site/ Content-Security-Policy "" "site index" -H "$ME"
+expect_header /site/areas/ Content-Security-Policy "" "site page" -H "$ME"
+expect_header /site/areas/index.html Content-Security-Policy "" "site page by name" -H "$ME"
 
 [ "$fail" -eq 0 ] && echo "all checks passed" || { echo "SOME CHECKS FAILED"; exit 1; }

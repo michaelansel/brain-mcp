@@ -128,6 +128,12 @@ MCP clients never send it. So a web page — in particular a note rendered on
 the brain site, which shares this origin and the reader's login — cannot call
 the brain's tools.
 
+The brain's own HTML pages on the site are served with
+`Content-Security-Policy: sandbox …` (the `$site_sandbox` map), every `.html`
+under `/site/` except the `index.html` pages MkDocs renders. A sandboxed page
+has an opaque origin, so its script cannot use the site's service worker,
+caches, storage or cookies. `allow-same-origin` must never be added to it.
+
 Before deploying any change to that file, run it for real:
 
 ```sh
