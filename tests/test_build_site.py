@@ -342,3 +342,58 @@ def test_projects_created_this_week_are_marked_new(brain, build):
         assert chip in rows["- [Fresh idea"]
         assert chip in rows["- [Hand made"]
         assert chip not in rows["- [Old thing"]
+
+
+PAGE = (
+    "<!doctype html><title>Trip &amp; map</title>\n"
+    "<script>document.title = 'still here';</script>\n"
+)
+
+
+def test_html_pages_are_published_as_written_and_listed_like_notes(brain, build):
+    views = brain / "projects" / "trip" / "views"
+    views.mkdir(parents=True)
+    (views / "map.html").write_text(PAGE)
+    (views / "rough-sketch.html").write_text("<p>no title</p>\n")
+    commit_all(brain, "pages")
+
+    assert build().returncode == 0
+    current = build.site / "current"
+    assert (current / "projects" / "trip" / "views" / "map.html").read_text() == PAGE
+    folder = (current / "projects" / "trip" / "views" / "index.md").read_text()
+    assert "[Trip & map](<map.html>)" in folder  # by its <title>
+    assert "[Rough sketch](<rough-sketch.html>)" in folder  # else by its filename
+    assert "[Trip & map](<projects/trip/views/map.html>)" in (current / "index.md").read_text()
+    files = json.loads((current / "offline.json").read_text())["files"]
+    assert "projects/trip/views/map.html" in files
+
+
+def test_a_brain_file_named_index_html_is_never_published(brain, build):
+    # The pages MkDocs renders are all index.html, and are served unsandboxed.
+    (brain / "inbox" / "index.html").write_text("<script>1</script>\n")
+    (brain / "areas" / "INDEX.HTML").write_text("<script>1</script>\n")
+    commit_all(brain, "index pages")
+
+    assert build().returncode == 0
+    current = build.site / "current"
+    assert not (current / "inbox" / "index.html").exists()
+    assert not (current / "areas" / "INDEX.HTML").exists()
+    assert "Big idea" in (current / "inbox" / "index.md").read_text()  # the folder page still is
+
+
+def test_html_is_not_excluded_from_the_site():
+    config = (SCRIPT.parent.parent / "site" / "mkdocs.yml").read_text()
+    assert "exclude_docs" not in config
+
+
+def test_the_worker_sandboxes_pages_exactly_as_nginx_does():
+    import re
+
+    repo = SCRIPT.parent.parent
+    nginx = (repo / "gateway" / "deploy" / "nginx.conf").read_text()
+    worker = (repo / "site" / "sw.js").read_text()
+    served = re.search(r'~\*\\\.html\$ "(sandbox [^"]+)"', nginx).group(1)
+    offline = re.search(r'const SANDBOX =\s*"([^"]+)"', worker).group(1)
+    assert served == offline
+    assert "allow-scripts" in served
+    assert "allow-same-origin" not in served  # would undo the sandbox

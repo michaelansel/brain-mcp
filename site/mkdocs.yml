@@ -20,11 +20,9 @@ theme:
       scheme: slate
 extra_css:
   - extra.css
-# The brain holds the odd HTML file (a review template). Publish notes only.
-# (Its script files are deleted by build-site.sh: a pattern here would also
-# drop the theme's own JavaScript.)
-exclude_docs: |
-  *.html
+# The brain's HTML pages are published as written, beside its notes; nginx and
+# sw.js serve them sandboxed. Its script files are deleted by build-site.sh
+# instead of excluded here: a pattern here would also drop the theme's own.
 plugins:
   - search # on by default, but naming any plugin turns the defaults off
   - awesome-nav # sidebar order, from nav.yml

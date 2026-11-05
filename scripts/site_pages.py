@@ -4,6 +4,8 @@ Called by build-site.sh with the export directory (a `git archive` of the
 commit being built), the brain repo, that commit, and the build time. It adds
 markdown and nothing else: a landing page, and an index.md for each folder so
 the theme has a page to show for it. A page the brain already has is kept.
+A note here is a .md file or one of the brain's HTML pages: both are listed
+the same way, by title, and both count as changes.
 
     site_pages.py <docs> <brain_root> <sha> <built>
 """
@@ -22,6 +24,7 @@ from brain_mcp.frontmatter import split
 RECENT = 20  # notes on the landing page
 ACTIVE_DAYS = 7  # how far back "Active this week" looks, counting HEAD's day
 GIST = 200  # characters of a project's summary shown on the landing page
+NOTES = (".md", ".html")  # what the site lists as notes
 
 
 def history(root: Path, sha: str) -> list[tuple[str, str]]:
@@ -38,7 +41,7 @@ def history(root: Path, sha: str) -> list[tuple[str, str]]:
             "--name-only",
             sha,
             "--",
-            "*.md",
+            *(f"*{suffix}" for suffix in NOTES),
         ],
         capture_output=True,
         text=True,
@@ -68,8 +71,14 @@ def dir_title(name: str) -> str:
 
 def note_title(file: Path) -> str:
     """Frontmatter title (or a manifest's name), else the first heading, else
-    the filename — the order MkDocs itself uses, plus the manifest's name."""
-    meta, body = split(file.read_text(encoding="utf-8", errors="replace"))
+    the filename — the order MkDocs itself uses, plus the manifest's name.
+    An HTML page's title is its <title>, else the filename."""
+    text = file.read_text(encoding="utf-8", errors="replace")
+    if file.suffix == ".html":
+        found = re.search(r"<title[^>]*>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+        title = " ".join(html.unescape(found.group(1)).split()) if found else ""
+        return title or dir_title(file.stem)
+    meta, body = split(text)
     meta = meta or {}
     for key in ("title", "name"):
         if isinstance(meta.get(key), str) and meta[key].strip():
@@ -205,7 +214,7 @@ def contents(
         (newest(f"{rel}{f.name}"), f)
         for f in folder.iterdir()
         if f.is_file()
-        and f.suffix == ".md"
+        and f.suffix in NOTES
         and f.name not in ("index.md", "README.md", "summary.md")
     ]
 
@@ -237,7 +246,7 @@ def folder_pages(docs: Path, days: dict[str, str], this_year: int, new: set[str]
     for folder in sorted(folders, key=lambda p: len(p.parts), reverse=True):
         if index_page(docs, folder) is not None:
             continue
-        has_notes = any(f.suffix == ".md" for f in folder.iterdir() if f.is_file())
+        has_notes = any(f.suffix in NOTES for f in folder.iterdir() if f.is_file())
         has_pages = any(index_page(docs, s) for s in folder.iterdir() if s.is_dir())
         if has_notes or has_pages:
             (folder / "index.md").write_text(

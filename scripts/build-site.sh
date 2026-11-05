@@ -30,7 +30,9 @@ git -C "$BRAIN_ROOT" archive "$sha" | tar -x -C "$work/docs"
 # Never publish script from the brain: a note's .js plus a raw-HTML <script>
 # could register itself as the site's service worker, which would outlive the
 # note on every phone. (Not exclude_docs: that would drop the theme's own.)
-find "$work/docs" -type f \( -name '*.js' -o -name '*.mjs' \) -delete
+# Nor a brain file named index.html: the brain's other HTML pages are served
+# sandboxed, and the pages MkDocs renders, which must not be, are all index.html.
+find "$work/docs" -type f \( -name '*.js' -o -name '*.mjs' -o -iname 'index.html' \) -delete
 cp "$repo/site/mkdocs.yml" "$work/mkdocs.yml"
 cp "$repo/site/nav.yml" "$work/docs/.nav.yml"
 cp "$repo/site/extra.css" "$work/docs/extra.css"

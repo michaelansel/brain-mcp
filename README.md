@@ -173,10 +173,22 @@ BRAIN_MCP_POST_COMMIT_CMD=/path/to/brain-mcp/scripts/build-site.sh
   a phone had saved — ~5 MB to sync. Now an added note changes about a dozen
   files, ~0.6 MB, nearly all of it the search index, which Material rewrites on
   every edit and every page load fetches online anyway.
-- **No script from the brain is published**: `build-site.sh` deletes `.js` and
-  `.mjs` files from the export (an `exclude_docs` pattern would also drop the
-  theme's own). A note's own script registered as the site's service worker
-  would outlive the note.
+- **HTML pages are published, sandboxed.** An `.html` file anywhere in the
+  brain is published as written, beside the notes, and listed like one (by its
+  `<title>`). nginx serves each with `Content-Security-Policy: sandbox …`
+  (`$site_sandbox` in `gateway/deploy/nginx.conf`), which gives it an opaque
+  origin: its script runs, but cannot reach the site's service worker, caches,
+  storage or cookies. The service worker adds the same header to the copies it
+  serves offline (`site/sw.js`), and a test keeps the two policies equal. So
+  only self-contained pages work: inline script and style (fonts and CDNs are
+  fine), storage access wrapped in try/catch (`localStorage` throws in the
+  sandbox), no `window.claude`, and offline only what is inline renders.
+- **No script file from the brain is published**: `build-site.sh` deletes
+  `.js` and `.mjs` files from the export (an `exclude_docs` pattern would also
+  drop the theme's own). A note's own script registered as the site's service
+  worker would outlive the note. It also deletes any brain file named
+  `index.html`: every page MkDocs renders is one, and those are the pages
+  served unsandboxed.
 - **The build script lives here, not in the brain.** Anything in the brain is
   writable by every MCP client; a build script there would be code execution
   on this host for anyone who can write a note.
