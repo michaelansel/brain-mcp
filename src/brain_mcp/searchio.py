@@ -13,22 +13,28 @@ from typing import Any
 from fastmcp.exceptions import ToolError
 
 
-def search(root: Path, query: str, start: Path, limit: int, regex: bool) -> list[dict[str, Any]]:
+def search(
+    root: Path, query: str, start: Path, limit: int, regex: bool, case_sensitive: bool = False
+) -> list[dict[str, Any]]:
     """Search `start` (a confined file or directory) for `query`.
 
     Returns hits as {path, line, text}, sorted by (path, line), capped at
-    `limit`. Literal match unless `regex` is True.
+    `limit`. Literal match unless `regex` is True; case-insensitive unless
+    `case_sensitive` is True.
     """
     if shutil.which("rg"):
-        hits = _search_rg(root, query, start, regex)
+        hits = _search_rg(root, query, start, regex, case_sensitive)
     else:
-        hits = _search_py(root, query, start, regex)
+        hits = _search_py(root, query, start, regex, case_sensitive)
     hits.sort(key=lambda h: (h["path"], h["line"]))
     return hits[:limit]
 
 
-def _search_rg(root: Path, query: str, start: Path, regex: bool) -> list[dict[str, Any]]:
+def _search_rg(
+    root: Path, query: str, start: Path, regex: bool, case_sensitive: bool
+) -> list[dict[str, Any]]:
     cmd = ["rg", "--json", "--hidden", "--no-ignore", "-g", "!**/.git/**"]
+    cmd.append("-s" if case_sensitive else "-i")
     if not regex:
         cmd.append("-F")
     cmd += ["-e", query, "--", str(start)]
@@ -58,17 +64,15 @@ def _search_rg(root: Path, query: str, start: Path, regex: bool) -> list[dict[st
     return hits
 
 
-def _search_py(root: Path, query: str, start: Path, regex: bool) -> list[dict[str, Any]]:
-    if regex:
-        try:
-            pattern = re.compile(query)
-        except re.error as exc:
-            raise ToolError(f"invalid regex '{query}': {exc}") from exc
-        match = pattern.search
-    else:
-
-        def match(line: str) -> bool:  # type: ignore[misc]
-            return query in line
+def _search_py(
+    root: Path, query: str, start: Path, regex: bool, case_sensitive: bool
+) -> list[dict[str, Any]]:
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        pattern = re.compile(query if regex else re.escape(query), flags)
+    except re.error as exc:
+        raise ToolError(f"invalid regex '{query}': {exc}") from exc
+    match = pattern.search
 
     files = [start] if start.is_file() else _walk(start)
     hits = []

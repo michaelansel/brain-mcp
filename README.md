@@ -210,7 +210,7 @@ ever adds (it errors rather than overwriting an existing project).
 
 - `list(path="")` — one directory level. Entries: `name`, `path`, `type` (`file`|`dir`), `size` (bytes; 0 for dirs), `modified` (ISO 8601 UTC).
 - `read(path)` — `{"content", "hash"}`: the file's UTF-8 contents and their sha256. Pass the hash back as `base_hash` to `write`/`edit`. Reading a `summary.md` may also carry `summary_stale` (see "Folder summaries").
-- `search(query, path="", limit=50, regex=False)` — ripgrep across the brain (pure-Python fallback when `rg` is absent). Hits: `path`, `line`, `text`. Literal by default.
+- `search(query, path="", limit=50, regex=False, case_sensitive=False)` — ripgrep across the brain (pure-Python fallback when `rg` is absent). Hits: `path`, `line`, `text`. Literal and case-insensitive by default.
 - `glob(pattern)` — paths matching a glob, e.g. `projects/**/*.md`.
 
 **Write** — each call commits and returns `{"path", "commit", "message"}`.

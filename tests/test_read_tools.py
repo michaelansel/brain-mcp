@@ -92,6 +92,21 @@ async def test_search_regex_opt_in(client):
     assert len(hits) == 1
 
 
+@pytest.mark.parametrize("fallback", [False, True])
+@pytest.mark.parametrize("regex", [False, True])
+async def test_search_ignores_case_by_default(client, monkeypatch, fallback, regex):
+    if fallback:
+        monkeypatch.setattr(searchio.shutil, "which", lambda _: None)
+    hits = data(await client.call_tool("search", {"query": "BUILD A ROCKET", "regex": regex}))
+    assert [h["path"] for h in hits] == ["inbox/idea.md"]
+    hits = data(
+        await client.call_tool(
+            "search", {"query": "BUILD A ROCKET", "regex": regex, "case_sensitive": True}
+        )
+    )
+    assert hits == []
+
+
 async def test_search_scoped_to_path(client):
     hits = data(await client.call_tool("search", {"query": "#", "path": "areas"}))
     assert all(h["path"].startswith("areas/") for h in hits)

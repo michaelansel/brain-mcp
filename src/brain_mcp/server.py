@@ -176,13 +176,21 @@ def build_server(config: BrainConfig) -> FastMCP:
         return result
 
     @mcp.tool(annotations=READ_ONLY)
-    def search(query: str, path: str = "", limit: int = 50, regex: bool = False) -> list[Hit]:
-        """Search the brain for a string (literal by default; regex=True to
-        opt in). Hits carry path, line, and the matching line's text."""
+    def search(
+        query: str,
+        path: str = "",
+        limit: int = 50,
+        regex: bool = False,
+        case_sensitive: bool = False,
+    ) -> list[Hit]:
+        """Search the brain for a string. Case-insensitive and literal by
+        default; regex=True opts in to regular expressions, and
+        case_sensitive=True to exact case. Hits carry path, line, and the
+        matching line's text."""
         start = confine(root, path, allow_root=True)
         if not start.exists():
             raise ToolError(f"no such path '{path}'")
-        return searchio.search(root, query, start, limit, regex)
+        return searchio.search(root, query, start, limit, regex, case_sensitive)
 
     @mcp.tool(name="glob", annotations=READ_ONLY)
     def glob_paths(pattern: str) -> list[str]:
