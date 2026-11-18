@@ -105,6 +105,33 @@ def client_secret_matches(conn: sqlite3.Connection, client_id: str, client_secre
     return hmac.compare_digest(row["client_secret_hash"], _hash(client_secret))
 
 
+def list_confidential_clients(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        """SELECT client_id, name, redirect_uris, created_at FROM oauth_clients
+           WHERE client_secret_hash IS NOT NULL ORDER BY created_at"""
+    ).fetchall()
+    return [
+        {
+            "client_id": r["client_id"],
+            "name": r["name"],
+            "redirect_uris": json.loads(r["redirect_uris"]),
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def remove_confidential_client(conn: sqlite3.Connection, client_id: str) -> bool:
+    """Delete a hand-added client. Its codes in flight die with it, since /token looks
+    the client up again. VM tokens already minted for it are NOT revoked here."""
+    cursor = conn.execute(
+        "DELETE FROM oauth_clients WHERE client_id = ? AND client_secret_hash IS NOT NULL",
+        (client_id,),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
 def create_pending_authorization(
     conn: sqlite3.Connection,
     session_id: str,

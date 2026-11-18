@@ -5,6 +5,7 @@ import json
 import sqlite3
 
 import httpx
+import pytest
 from starlette.testclient import TestClient
 
 from oauth_gateway import cli, db
@@ -216,3 +217,38 @@ def test_old_database_gains_the_new_columns(tmp_path):
     client = db.get_client(conn, "dcr-client")
     assert client["confidential"] is False
     assert client["name"] is None
+
+
+def test_list_and_remove_client_cli(config, capsys):
+    cli.main(["add-client", "--name", "ha", "--redirect-uri", HA_REDIRECT, "--db", config.db_path])
+    client_id = capsys.readouterr().out.splitlines()[0].split(":", 1)[1].strip()
+
+    cli.main(["list-clients", "--db", config.db_path])
+    listing = capsys.readouterr().out
+    assert client_id in listing and HA_REDIRECT in listing
+
+    cli.main(["remove-client", client_id, "--db", config.db_path])
+    capsys.readouterr()
+    cli.main(["list-clients", "--db", config.db_path])
+    assert capsys.readouterr().out == ""
+
+    with pytest.raises(SystemExit):
+        cli.main(["remove-client", client_id, "--db", config.db_path])
+
+
+def test_removed_client_can_no_longer_get_a_token(config):
+    client_id, secret = _add_client(config)
+    with TestClient(build_app(config, http_client=_recording_http_client([]))) as client:
+        code = _code(client, client_id)
+        conn = db.connect(config.db_path)
+        assert db.remove_confidential_client(conn, client_id)
+        conn.close()
+        r = _exchange(client, client_id, secret, code)
+    assert r.status_code == 401
+
+
+def test_remove_refuses_a_dcr_client(config):
+    with TestClient(build_app(config, http_client=_recording_http_client([]))) as client:
+        public_id = _register(client)
+    conn = db.connect(config.db_path)
+    assert not db.remove_confidential_client(conn, public_id)

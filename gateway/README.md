@@ -211,7 +211,15 @@ The gateway supports that shape for clients added by hand:
 # On the VM, with the gateway's environment loaded:
 oauth-gateway add-client --name ha --redirect-uri https://my.home-assistant.io/redirect/oauth
 # prints client_id and client_secret once; only the secret's hash is stored
+oauth-gateway list-clients              # id, name, created, redirect URIs
+oauth-gateway remove-client <client_id> # stops new tokens for it
 ```
+
+Removing a client does not revoke VM tokens already minted for it: find them in
+`ssh exe.dev ssh-key list` by their `oauth-gateway-<vm>-<name>-…` label and
+`ssh exe.dev ssh-key remove` each. There is no edit command; to change a
+redirect or rotate a secret, remove the client and add it again (the client
+needs the new credentials either way).
 
 - The redirect URI is stored on that client only. Never add it to
   `GATEWAY_ALLOWED_REDIRECT_URIS`: my.home-assistant.io is the same redirect for
