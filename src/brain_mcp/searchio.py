@@ -12,21 +12,34 @@ from typing import Any
 
 from fastmcp.exceptions import ToolError
 
+from brain_mcp import contenthash, excerpt
+from brain_mcp.summaries import SUMMARY_NAME
+
 
 def search(
-    root: Path, query: str, start: Path, limit: int, regex: bool, case_sensitive: bool = False
+    root: Path,
+    query: str,
+    start: Path,
+    limit: int,
+    regex: bool,
+    case_sensitive: bool = False,
+    archive_last: bool = False,
 ) -> list[dict[str, Any]]:
     """Search `start` (a confined file or directory) for `query`.
 
     Returns hits as {path, line, text}, sorted by (path, line), capped at
     `limit`. Literal match unless `regex` is True; case-insensitive unless
-    `case_sensitive` is True.
+    `case_sensitive` is True. `archive_last` sorts archive/ after everything
+    else before the cap, so live notes aren't crowded out.
     """
     if shutil.which("rg"):
         hits = _search_rg(root, query, start, regex, case_sensitive)
     else:
         hits = _search_py(root, query, start, regex, case_sensitive)
-    hits.sort(key=lambda h: (h["path"], h["line"]))
+    if archive_last:
+        hits.sort(key=lambda h: (h["path"].startswith("archive/"), h["path"], h["line"]))
+    else:
+        hits.sort(key=lambda h: (h["path"], h["line"]))
     return hits[:limit]
 
 
@@ -100,4 +113,37 @@ def _walk(start: Path) -> list[Path]:
     for dirpath, dirnames, filenames in os.walk(start):
         dirnames[:] = [d for d in dirnames if d != ".git"]
         out.extend(Path(dirpath) / name for name in filenames)
+    return out
+
+
+# search(expand=True): whole small notes inline, within an overall budget.
+EXPAND_FILE_MAX_BYTES = 4096
+EXPAND_BUDGET_BYTES = 40_000
+
+
+def expand(root: Path, hits: list[dict[str, Any]], read_note) -> list[dict[str, Any]]:
+    """Group hits by file, in hit order. Each file gets its title, its hits, and —
+    if it is at most EXPAND_FILE_MAX_BYTES and the overall budget allows — its
+    whole content and hash, exactly as `read` would return them. Content is all
+    or nothing; a file is never truncated. summary.md is never inlined: reading
+    it is what reports whether it has fallen behind, so it must be `read`."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for h in hits:
+        groups.setdefault(h["path"], []).append({"line": h["line"], "text": h["text"]})
+    budget = EXPAND_BUDGET_BYTES
+    out = []
+    for path, file_hits in groups.items():
+        entry: dict[str, Any] = {"path": path, "title": None, "hits": file_hits, "content": None}
+        text = read_note(root / path)
+        if text is not None:
+            entry["title"] = excerpt.title(text)
+            size = len(text.encode("utf-8"))
+            inline = (
+                Path(path).name != SUMMARY_NAME and size <= EXPAND_FILE_MAX_BYTES and size <= budget
+            )
+            if inline:
+                entry["content"] = text
+                entry["hash"] = contenthash.digest(text)
+                budget -= size
+        out.append(entry)
     return out

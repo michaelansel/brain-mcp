@@ -70,6 +70,19 @@ class Hit(TypedDict):
     text: str
 
 
+class LineHit(TypedDict):
+    line: int
+    text: str
+
+
+class FileHits(TypedDict):
+    path: str
+    title: str | None
+    hits: list[LineHit]
+    content: str | None  # whole note when small enough; else None — use read
+    hash: NotRequired[str]  # present with content; same as read's hash
+
+
 class MutationResult(TypedDict):
     path: str
     commit: str | None
@@ -182,15 +195,35 @@ def build_server(config: BrainConfig) -> FastMCP:
         limit: int = 50,
         regex: bool = False,
         case_sensitive: bool = False,
-    ) -> list[Hit]:
+        expand: bool = False,
+    ) -> list[Hit] | list[FileHits]:
         """Search the brain for a string. Case-insensitive and literal by
         default; regex=True opts in to regular expressions, and
         case_sensitive=True to exact case. Hits carry path, line, and the
-        matching line's text."""
+        matching line's text, sorted by path; `limit` caps the lines.
+
+        expand=True answers more in one call: archive/ sorts last, and hits
+        are grouped per file with its title and, for notes up to 4 KB (about
+        40 KB in all), the whole `content` plus its `hash`, exactly as `read`
+        returns them. Larger notes, and every summary.md, come back with
+        content null: `read` them. Edit rules are unchanged: only a hash you
+        were given counts as having seen the file."""
         start = confine(root, path, allow_root=True)
         if not start.exists():
             raise ToolError(f"no such path '{path}'")
-        return searchio.search(root, query, start, limit, regex, case_sensitive)
+        hits = searchio.search(
+            root, query, start, limit, regex, case_sensitive, archive_last=expand
+        )
+        if not expand:
+            return hits
+
+        def read_note(target: Path) -> str | None:
+            try:
+                return target.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                return None
+
+        return searchio.expand(root, hits, read_note)
 
     @mcp.tool(name="glob", annotations=READ_ONLY)
     def glob_paths(pattern: str) -> list[str]:

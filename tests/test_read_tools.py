@@ -173,3 +173,65 @@ async def test_reads_see_external_edits_without_restart(brain, client):
     commit_all(brain, "external edit")
     result = await client.call_tool("read", {"path": "agents.md"})
     assert "Edited outside" in result.data.content
+
+
+async def test_search_default_shape_unchanged(client):
+    hits = data(await client.call_tool("search", {"query": "rocket"}))
+    assert hits == [{"path": "inbox/idea.md", "line": 3, "text": "Build a rocket."}]
+
+
+async def test_search_expand_groups_and_inlines_small_notes(brain, client):
+    (brain / "inbox" / "two.md").write_text(
+        "---\ntitle: Two rockets\n---\nrocket one\nrocket two\n"
+    )
+    hits = data(await client.call_tool("search", {"query": "rocket", "expand": True}))
+    by_path = {h["path"]: h for h in hits}
+    assert list(by_path) == ["inbox/idea.md", "inbox/two.md"]
+    two = by_path["inbox/two.md"]
+    assert two["title"] == "Two rockets"
+    assert [h["line"] for h in two["hits"]] == [2, 4, 5]  # title matches too: case-insensitive
+    read = data(await client.call_tool("read", {"path": "inbox/two.md"}))
+    assert two["content"] == read["content"]
+    assert two["hash"] == read["hash"]
+    assert by_path["inbox/idea.md"]["title"] == "Big idea"
+
+
+async def test_search_expand_hash_works_as_base_hash(brain, client):
+    hit = data(await client.call_tool("search", {"query": "rocket", "expand": True}))[0]
+    await client.call_tool(
+        "write",
+        {"path": hit["path"], "content": "# Big idea\n\nBuild two.\n", "base_hash": hit["hash"]},
+    )
+
+
+async def test_search_expand_skips_large_notes_and_summaries(brain, client):
+    (brain / "areas" / "big.md").write_text("rocket\n" + "x" * 5000 + "\n")
+    (brain / "areas" / "summary.md").write_text("# Areas\n\nrocket summary\n")
+    hits = data(
+        await client.call_tool("search", {"query": "rocket", "path": "areas", "expand": True})
+    )
+    for h in hits:
+        assert h["content"] is None
+        assert "hash" not in h
+        assert h["hits"]
+
+
+async def test_search_expand_budget_never_truncates(brain, client, monkeypatch):
+    monkeypatch.setattr(searchio, "EXPAND_BUDGET_BYTES", 5000)
+    for i in range(5):
+        (brain / "inbox" / f"n{i}.md").write_text("rocket\n" + "y" * 2000 + "\n")
+    hits = data(await client.call_tool("search", {"query": "rocket", "expand": True}))
+    inlined = [h for h in hits if h["content"] is not None]
+    assert 1 <= len(inlined) < len(hits)
+    for h in inlined:
+        assert h["content"] == (brain / h["path"]).read_text()
+
+
+async def test_search_expand_puts_archive_last(brain, client):
+    (brain / "archive").mkdir()
+    for i in range(5):
+        (brain / "archive" / f"old{i}.md").write_text("rocket\n")
+    hits = data(await client.call_tool("search", {"query": "rocket", "limit": 2, "expand": True}))
+    assert hits[0]["path"] == "inbox/idea.md"
+    plain = data(await client.call_tool("search", {"query": "rocket", "limit": 2}))
+    assert all(h["path"].startswith("archive/") for h in plain)

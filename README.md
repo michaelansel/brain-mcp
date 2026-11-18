@@ -210,7 +210,7 @@ ever adds (it errors rather than overwriting an existing project).
 
 - `list(path="")` — one directory level. Entries: `name`, `path`, `type` (`file`|`dir`), `size` (bytes; 0 for dirs), `modified` (ISO 8601 UTC).
 - `read(path)` — `{"content", "hash"}`: the file's UTF-8 contents and their sha256. Pass the hash back as `base_hash` to `write`/`edit`. Reading a `summary.md` may also carry `summary_stale` (see "Folder summaries").
-- `search(query, path="", limit=50, regex=False, case_sensitive=False)` — ripgrep across the brain (pure-Python fallback when `rg` is absent). Hits: `path`, `line`, `text`. Literal and case-insensitive by default.
+- `search(query, path="", limit=50, regex=False, case_sensitive=False, expand=False)` — ripgrep across the brain (pure-Python fallback when `rg` is absent). Hits: `path`, `line`, `text`. Literal and case-insensitive by default. `expand=True` is for answering in one call (a latency-bound voice agent, say): `archive/` sorts last before `limit` applies, hits are grouped per file with its `title`, and notes up to 4 KB (40 KB in all, never truncated) come back whole with the same `content` and `hash` `read` returns. Larger notes and every `summary.md` get `content: null` — a summary must be `read`, because reading it is what reports staleness. The default output is unchanged.
 - `glob(pattern)` — paths matching a glob, e.g. `projects/**/*.md`.
 
 **Write** — each call commits and returns `{"path", "commit", "message"}`.
@@ -222,7 +222,7 @@ ever adds (it errors rather than overwriting an existing project).
 
 **Projects**
 
-- `projects(summaries_too=False)` — every project with `name`, `status`, `path`, `repo_count`, `owner` (always a list; `[]` if unknown). Reads only frontmatter, so it stays fast with hundreds of projects. `summaries_too` adds per-project summary staleness and read counts — the list of what is worth refreshing, in one call — at a couple of git calls per project, which is why it is opt-in.
+- `projects(summaries_too=False, about=False, status=None)` — every project with `name`, `status`, `path`, `repo_count`, `owner` (always a list; `[]` if unknown). `status` keeps only that status; `about` adds the first sentence of each `project.md`'s prose, cut to 200 characters — a one-call map of the brain (the active projects of a brain with ~50 come to roughly 4k tokens). Reads only frontmatter, so it stays fast with hundreds of projects. `summaries_too` adds per-project summary staleness and read counts — the list of what is worth refreshing, in one call — at a couple of git calls per project, which is why it is opt-in.
 - `project(name)` — frontmatter, `project.md` prose, and a recursive file listing. Also `summary_stale` if the project's summary has fallen behind, or `summary` explaining none has been written.
 - `project_create(name, summary, owner, from_path=None)` — scaffold `projects/<name>/project.md`. `owner` is required: a list of lowercase slugs naming who the project is for, or `[]` when there is nobody to ask. It is the caller's claim, a hint and not an access control. With `from_path` (a note in `inbox/`), the note moves into the new project **in the same commit**.
 

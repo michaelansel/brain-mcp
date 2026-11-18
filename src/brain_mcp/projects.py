@@ -14,7 +14,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from brain_mcp import frontmatter, summaries
+from brain_mcp import excerpt, frontmatter, summaries
 from brain_mcp.attention import Attention
 from brain_mcp.config import BrainConfig
 from brain_mcp.errors import ToolError, git_guard
@@ -37,13 +37,28 @@ ADDITIVE_ONLY = {
 }
 
 
+def _about(manifest: Path) -> str:
+    try:
+        return excerpt.first_sentence(manifest.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return ""
+
+
 def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
     root = config.root
 
     @mcp.tool(annotations=READ_ONLY)
-    async def projects(summaries_too: bool = False) -> list[dict[str, Any]]:
-        """Every project: name, status, path, repo count. Reads frontmatter
-        only, so it stays fast with hundreds of projects.
+    async def projects(
+        summaries_too: bool = False, about: bool = False, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Every project: name, status, path, repo count, owner. Reads
+        frontmatter only, so it stays fast with hundreds of projects.
+
+        `status` keeps only projects with that status (e.g. "active").
+        `about` adds each project's one-line `about`: the first sentence of
+        its project.md prose, cut to 200 characters — a map of every project
+        in one call. It is an excerpt for orientation, not a read: call
+        `project` or `read` before acting on or editing a project.
 
         `summaries_too` adds, per project, how far its summary has fallen
         behind and how much attention it has had — the list of what is worth
@@ -59,16 +74,20 @@ def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
             if not entry.is_dir() or entry.name == ".git":
                 continue
             meta = frontmatter.read_head(entry / "project.md") or {}
+            item_status = str(meta.get("status", "unknown"))
+            if status is not None and item_status != status:
+                continue
             repos = meta.get("repos")
-            out.append(
-                {
-                    "name": str(meta.get("name", entry.name)),
-                    "status": str(meta.get("status", "unknown")),
-                    "path": f"{PROJECTS_DIR}/{entry.name}",
-                    "repo_count": len(repos) if isinstance(repos, list) else 0,
-                    "owner": _owner_list(meta.get("owner")),
-                }
-            )
+            item: dict[str, Any] = {
+                "name": str(meta.get("name", entry.name)),
+                "status": item_status,
+                "path": f"{PROJECTS_DIR}/{entry.name}",
+                "repo_count": len(repos) if isinstance(repos, list) else 0,
+                "owner": _owner_list(meta.get("owner")),
+            }
+            if about:
+                item["about"] = _about(entry / "project.md")
+            out.append(item)
         if summaries_too:
             counts = await attention.counts([p["path"] for p in out])
             for item in out:

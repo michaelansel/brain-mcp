@@ -223,3 +223,41 @@ async def test_project_create_traversal_rejected(client, tmp_path):
             "project_create",
             {"owner": [], "name": "x", "summary": "s", "from_path": "../outside.md"},
         )
+
+
+async def test_projects_default_output_has_no_about(brain, client):
+    seed_project(brain, "alpha")
+    result = data(await client.call_tool("projects", {}))
+    assert "about" not in result[0]
+
+
+async def test_projects_about_is_first_prose_sentence(brain, client):
+    seed_project(brain, "alpha")
+    pdir = brain / "projects" / "beta"
+    pdir.mkdir(parents=True)
+    (pdir / "project.md").write_text(
+        "---\nname: beta\nstatus: active\n---\n\n# Beta\n\n- a list item.\n\n"
+        "| a | table |\n\nPlan the  launch\nfor spring. Then more.\n"
+    )
+    long = brain / "projects" / "gamma"
+    long.mkdir(parents=True)
+    (long / "project.md").write_text("---\nname: gamma\nstatus: active\n---\n\n" + "x" * 500 + "\n")
+    bare = brain / "projects" / "delta"
+    bare.mkdir(parents=True)
+    (bare / "project.md").write_text("---\nname: delta\nstatus: active\n---\n\n# Delta\n")
+    result = {
+        p["name"]: p["about"] for p in data(await client.call_tool("projects", {"about": True}))
+    }
+    assert result["alpha"] == "Some prose about alpha."
+    assert result["beta"] == "Plan the launch for spring."
+    assert len(result["gamma"]) == 200 and result["gamma"].endswith("…")
+    assert result["delta"] == ""
+
+
+async def test_projects_status_filter(brain, client):
+    seed_project(brain, "alpha")
+    seed_project(brain, "beta", status="shelved")
+    names = [p["name"] for p in data(await client.call_tool("projects", {"status": "active"}))]
+    assert names == ["alpha"]
+    names = [p["name"] for p in data(await client.call_tool("projects", {"status": "shelved"}))]
+    assert names == ["beta"]
