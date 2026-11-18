@@ -19,6 +19,7 @@ trap '"$runtime" rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT
 # The config as it would be deployed, with invented identities.
 BRAIN_OWNER_EMAIL=allowed-email@example.com \
 BRAIN_SITE_READER_EMAILS=site-reader@example.com \
+BRAIN_TOKEN_CLIENT_IPS=198.51.100.7 \
     ./render-nginx.sh >"$tmp/nginx.conf"
 
 # Stand-ins for the OAuth gateway (:9000) and brain-mcp (:4001).
@@ -48,6 +49,7 @@ OTHER="X-ExeDev-Email: someone-else@example.com"
 READER="X-ExeDev-Email: site-reader@example.com"
 ANTHROPIC="X-Forwarded-For: 160.79.104.10"
 ELSEWHERE="X-Forwarded-For: 203.0.113.9"
+TOKEN_CLIENT="X-Forwarded-For: 198.51.100.7"
 fail=0
 
 # check <expected-status> <description> <path> [curl args...]
@@ -85,6 +87,8 @@ check 200 "register from Anthropic" /register -H "$ANTHROPIC"
 check 200 "token from Anthropic"    /token -H "$ANTHROPIC"
 check 403 "register from elsewhere" /register -H "$ELSEWHERE"
 check 403 "token from elsewhere"    /token -H "$ELSEWHERE"
+check 200 "token from a token client" /token -H "$TOKEN_CLIENT"
+check 403 "register from a token client" /register -H "$TOKEN_CLIENT"
 
 echo "--- someone else's identity: the same as none"
 check 404 "site"          /site/ -H "$OTHER"

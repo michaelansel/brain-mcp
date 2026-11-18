@@ -25,6 +25,9 @@ async def authorization_server_metadata(request: Request) -> JSONResponse:
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code"],
             "code_challenge_methods_supported": ["S256"],
+            # Only DCR's method is advertised: clients added by hand (client_secret_post)
+            # are configured out of band and don't read this, and keeping it unchanged
+            # keeps Claude.ai's DCR behaviour exactly as it was.
             "token_endpoint_auth_methods_supported": ["none"],
         }
     )

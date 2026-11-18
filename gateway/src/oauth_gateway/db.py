@@ -1,12 +1,17 @@
 """SQLite persistence: registered clients, in-flight authorizations, single-use auth codes.
 
-No refresh tokens — the minted exe.dev VM token is long-lived (see config.py),
-and expiry is handled by a manual reconnect, not an automated refresh grant.
+Two kinds of client share `oauth_clients`. A public client registered itself through
+DCR (Claude.ai) and has no secret; PKCE is its proof. A confidential client was added
+by hand with `oauth-gateway add-client` and has a secret, stored only as a hash.
+
+No refresh tokens are stored — the minted exe.dev VM token is long-lived (see
+config.py), and expiry is handled by a manual reconnect, not an automated refresh.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import sqlite3
 import time
@@ -43,6 +48,11 @@ def connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    # Columns added after the first deployment; an existing database gets them here.
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(oauth_clients)")}
+    for column in ("name", "client_secret_hash"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE oauth_clients ADD COLUMN {column} TEXT")
     conn.commit()
     return conn
 
@@ -51,21 +61,48 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def create_client(conn: sqlite3.Connection, client_id: str, redirect_uris: list[str]) -> None:
+def create_client(
+    conn: sqlite3.Connection,
+    client_id: str,
+    redirect_uris: list[str],
+    *,
+    name: str | None = None,
+    client_secret: str | None = None,
+) -> None:
+    secret_hash = _hash(client_secret) if client_secret is not None else None
     conn.execute(
-        "INSERT INTO oauth_clients (client_id, redirect_uris, created_at) VALUES (?, ?, ?)",
-        (client_id, json.dumps(redirect_uris), int(time.time())),
+        """INSERT INTO oauth_clients
+           (client_id, redirect_uris, created_at, name, client_secret_hash)
+           VALUES (?, ?, ?, ?, ?)""",
+        (client_id, json.dumps(redirect_uris), int(time.time()), name, secret_hash),
     )
     conn.commit()
 
 
 def get_client(conn: sqlite3.Connection, client_id: str) -> dict | None:
     row = conn.execute(
-        "SELECT client_id, redirect_uris FROM oauth_clients WHERE client_id = ?", (client_id,)
+        """SELECT client_id, redirect_uris, name, client_secret_hash
+           FROM oauth_clients WHERE client_id = ?""",
+        (client_id,),
     ).fetchone()
     if row is None:
         return None
-    return {"client_id": row["client_id"], "redirect_uris": json.loads(row["redirect_uris"])}
+    return {
+        "client_id": row["client_id"],
+        "redirect_uris": json.loads(row["redirect_uris"]),
+        "name": row["name"],
+        "confidential": row["client_secret_hash"] is not None,
+    }
+
+
+def client_secret_matches(conn: sqlite3.Connection, client_id: str, client_secret: str) -> bool:
+    """True only for a confidential client whose stored hash matches this secret."""
+    row = conn.execute(
+        "SELECT client_secret_hash FROM oauth_clients WHERE client_id = ?", (client_id,)
+    ).fetchone()
+    if row is None or row["client_secret_hash"] is None:
+        return False
+    return hmac.compare_digest(row["client_secret_hash"], _hash(client_secret))
 
 
 def create_pending_authorization(

@@ -50,16 +50,19 @@ class ExeDevMintError(Exception):
     """Raised when exe.dev's token-minting API fails or returns something unexpected."""
 
 
-def _build_label(vm_name: str, github_login: str) -> str:
+def _build_label(vm_name: str, github_login: str, client_name: str | None = None) -> str:
     date = datetime.now(UTC).strftime("%Y%m%d")
     suffix = secrets.token_hex(3)
-    return f"oauth-gateway-{vm_name}-{github_login}-{date}-{suffix}"
+    who = f"{client_name}-{github_login}" if client_name else github_login
+    return f"oauth-gateway-{vm_name}-{who}-{date}-{suffix}"
 
 
-def _build_command(vm_name: str, ttl_seconds: int, github_login: str) -> str:
+def _build_command(
+    vm_name: str, ttl_seconds: int, github_login: str, client_name: str | None = None
+) -> str:
     days = max(1, round(ttl_seconds / _SECONDS_PER_DAY))
     vm = shlex.quote(vm_name)
-    label = _build_label(vm_name, github_login)
+    label = _build_label(vm_name, github_login, client_name)
     return f"ssh-key generate-api-key --vm={vm} --label={label} --exp={days}d"
 
 
@@ -77,8 +80,9 @@ async def mint_vm_token(
     vm_name: str,
     ttl_seconds: int,
     github_login: str,
+    client_name: str | None = None,
 ) -> str:
-    command = _build_command(vm_name, ttl_seconds, github_login)
+    command = _build_command(vm_name, ttl_seconds, github_login, client_name)
     response = await http_client.post(
         _EXEC_URL,
         headers={"Authorization": f"Bearer {exedev_api_token}"},

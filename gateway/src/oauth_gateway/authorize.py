@@ -20,19 +20,22 @@ async def authorize(request: Request) -> Response:
     if params.get("response_type") != "code":
         return oauth_error(400, "unsupported_response_type", "only response_type=code is supported")
 
-    if params.get("code_challenge_method") != "S256":
-        return oauth_error(400, "invalid_request", "code_challenge_method=S256 is required")
-
-    code_challenge = params.get("code_challenge")
-    if not code_challenge:
-        return oauth_error(400, "invalid_request", "code_challenge is required")
-
     client_id = params.get("client_id")
     if not client_id:
         return oauth_error(400, "invalid_request", "client_id is required")
     client = db.get_client(conn, client_id)
     if client is None:
         return oauth_error(400, "invalid_client", "unknown client_id")
+
+    # PKCE is a public client's only proof at /token, so it's mandatory for them. A
+    # confidential client proves itself with its secret there instead, and some (Home
+    # Assistant's) never send a challenge — but one that does send it gets it checked.
+    code_challenge = params.get("code_challenge") or ""
+    if code_challenge or not client["confidential"]:
+        if params.get("code_challenge_method") != "S256":
+            return oauth_error(400, "invalid_request", "code_challenge_method=S256 is required")
+        if not code_challenge:
+            return oauth_error(400, "invalid_request", "code_challenge is required")
 
     redirect_uri = params.get("redirect_uri")
     if not redirect_uri or redirect_uri not in client["redirect_uris"]:

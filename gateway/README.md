@@ -78,9 +78,11 @@ sudo nginx -t && sudo systemctl reload nginx
 |---|---|
 | `BRAIN_OWNER_EMAIL` | Required. The one exe.dev identity that reaches `/mcp` (and the site). |
 | `BRAIN_SITE_READER_EMAILS` | Optional, comma-separated. exe.dev identities that may read `/site/` and nothing else; `/mcp` answers them as it answers a stranger. Each one also needs the VM shared with them (`ssh exe.dev share add <vm> reader@example.com`, Web access, never `--root`), or exe.dev's login stops them first. Never add them to `BRAIN_MCP_EXEDEV_EMAILS`. |
+| `BRAIN_TOKEN_CLIENT_IPS` | Optional, comma-separated IPv4 addresses or CIDRs that may reach `/token` besides Anthropic's range — the egress address of a [confidential client](#confidential-clients-home-assistant) such as Home Assistant. `/register` stays Anthropic-only. |
 
-Neither has a default; the script refuses anything that isn't plainly an
-email address, so a value can't change the config's meaning. This file also restricts `/register`
+None has a default; the script refuses anything that isn't plainly an
+email address (or, for `BRAIN_TOKEN_CLIENT_IPS`, an IPv4 address or CIDR), so a
+value can't change the config's meaning. This file also restricts `/register`
 and `/token` to Anthropic's published outbound IP range
 (`160.79.104.0/21`) — those two are always server-to-server calls from
 Claude's backend, never a browser, so this is a free extra layer on top of the
@@ -196,6 +198,46 @@ ssh exe.dev share set-private <vm>
 
 Repeat this whenever the connector needs re-adding (new device, revoked
 access) or once the 1-year token expires.
+
+## Confidential clients (Home Assistant)
+
+Some MCP clients can't register themselves: Home Assistant's MCP integration
+wants a static client ID and secret typed into its Application Credentials,
+sends the secret in the `/token` body (`client_secret_post`), sends no PKCE
+challenge, and redirects through `https://my.home-assistant.io/redirect/oauth`.
+The gateway supports that shape for clients added by hand:
+
+```sh
+# On the VM, with the gateway's environment loaded:
+oauth-gateway add-client --name ha --redirect-uri https://my.home-assistant.io/redirect/oauth
+# prints client_id and client_secret once; only the secret's hash is stored
+```
+
+- The redirect URI is stored on that client only. Never add it to
+  `GATEWAY_ALLOWED_REDIRECT_URIS`: my.home-assistant.io is the same redirect for
+  every Home Assistant install, so it must not be something DCR accepts.
+- `/token` requires the secret from a confidential client, and refuses a
+  secret from a public one. PKCE is optional for a confidential client, and
+  checked whenever it sent a challenge. Public (DCR) clients are unchanged.
+- Add the client's egress address to `BRAIN_TOKEN_CLIENT_IPS` and re-render
+  nginx, since its code exchange comes from home, not from Anthropic.
+- The minted VM token's label names the client
+  (`oauth-gateway-<vm>-ha-<login>-<date>-<rand>`), so `ssh exe.dev ssh-key
+  remove <label>` revokes it alone.
+- **No refresh.** Confidential clients get a `refresh_token` because Home
+  Assistant's OAuth helper crashes at expiry without one, but it is never
+  stored: every refresh answers `invalid_grant`, which Home Assistant turns
+  into a "reauthenticate" prompt. A real refresh grant wouldn't help much
+  anyway: the refresh request carries no VM token, so while the VM is private
+  exe.dev's edge sends it to the login page before it reaches the gateway.
+  Reauthenticate inside a public window, as below.
+
+Enrolling follows [Connecting Claude.ai](#connecting-claudeai-and-reconnecting-when-the-token-expires)
+with Home Assistant in place of Claude.ai: flip public, run the mandatory
+checks, add the MCP integration in Home Assistant with URL
+`https://<vm>.exe.xyz/mcp`, enter the client ID and secret when it asks for
+Application Credentials, complete the GitHub login, then flip private and
+confirm a tool call still works.
 
 ## Development
 
