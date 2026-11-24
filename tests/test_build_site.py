@@ -344,6 +344,64 @@ def test_projects_created_this_week_are_marked_new(brain, build):
         assert chip not in rows["- [Old thing"]
 
 
+def test_projects_that_are_not_active_carry_their_status(brain, build):
+    for name, status in (("busy", "active"), ("parked", "shelved"), ("bare", None)):
+        folder = brain / "projects" / name
+        folder.mkdir(parents=True)
+        line = f"status: {status}\n" if status else ""
+        (folder / "project.md").write_text(f"---\nname: {name}\n{line}---\n")
+        (folder / "notes.md").write_text("# Notes\n")
+    commit_on(brain, "2026-10-10", "projects")
+
+    assert build().returncode == 0
+    current = build.site / "current"
+    index = (current / "index.md").read_text()
+    active = index.split("## Active this week", 1)[1].split("## Recently changed", 1)[0]
+    listing = (current / "projects" / "index.md").read_text()
+    chip = '<span class="brain-chip brain-status">Shelved</span>'
+    for text in (active, listing):
+        rows = {line.split("]")[0]: line for line in text.splitlines() if line.startswith("- [")}
+        assert chip in rows["- [Parked"]
+        assert "brain-status" not in rows["- [Busy"]
+        assert "brain-status" not in rows["- [Bare"]
+
+
+def test_projects_and_areas_name_their_owners(brain, build):
+    for top, manifest, name, owner in (
+        ("projects", "project.md", "solo", "[octocat]"),
+        ("projects", "project.md", "shared", "[octocat, hubot]"),
+        ("projects", "project.md", "nobody", "[]"),
+        ("areas", "area.md", "garden", "octocat"),  # a bare string, as hand-edited
+    ):
+        folder = brain / top / name
+        folder.mkdir(parents=True)
+        (folder / manifest).write_text(f"---\nname: {name}\nowner: {owner}\n---\n")
+        (folder / "notes.md").write_text("# Notes\n")
+    other = brain / "inbox" / "loose"
+    other.mkdir(parents=True)
+    (other / "project.md").write_text("---\nowner: [octocat]\n---\n")  # not a project
+    commit_on(brain, "2026-10-10", "owners")
+
+    assert build().returncode == 0
+    current = build.site / "current"
+
+    def rows(page):
+        text = (current / page).read_text()
+        return {line.split("]")[0]: line for line in text.splitlines() if line.startswith("- [")}
+
+    def chip(who):
+        return f'<span class="brain-chip brain-owner">{who}</span>'
+
+    projects = rows("projects/index.md")
+    assert chip("Octocat") in projects["- [Solo"]
+    assert chip("Octocat") in projects["- [Shared"] and chip("Hubot") in projects["- [Shared"]
+    assert "brain-owner" not in projects["- [Nobody"]
+    assert chip("Octocat") in rows("areas/index.md")["- [Garden"]
+    assert "brain-owner" not in rows("inbox/index.md")["- [Loose"]
+    active = (current / "index.md").read_text().split("## Recently changed", 1)[0]
+    assert chip("Hubot") in active
+
+
 PAGE = (
     "<!doctype html><title>Trip &amp; map</title>\n"
     "<script>document.title = 'still here';</script>\n"

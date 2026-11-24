@@ -50,3 +50,13 @@ def read_head(path: Path, max_bytes: int = 65536) -> dict[str, Any] | None:
             return None
     except (OSError, yaml.YAMLError):
         return None
+
+
+def owners(raw: Any) -> list[str]:
+    """A manifest's `owner` as a list. Frontmatter is hand-edited, so a bare
+    string is accepted; a missing key is no owner rather than an assumed one."""
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
+        return [str(item) for item in raw]
+    return []

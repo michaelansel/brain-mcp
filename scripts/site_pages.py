@@ -17,9 +17,10 @@ import html
 import re
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
-from brain_mcp.frontmatter import split
+from brain_mcp.frontmatter import owners, split
 
 RECENT = 20  # notes on the landing page
 ACTIVE_DAYS = 7  # how far back "Active this week" looks, counting HEAD's day
@@ -102,9 +103,16 @@ def md_text(text: str) -> str:
     return re.sub(r"([\\\[\]*_`<>])", r"\\\1", text)
 
 
-def item(title: str, link: str, meta: str = "", chip: str = "") -> str:
-    """A list item linking to a page, with a chip and a quiet note after it."""
-    after = f' <span class="brain-chip">{html.escape(chip)}</span>' if chip else ""
+Chip = tuple[str, str]  # (text, extra CSS class)
+
+
+def item(title: str, link: str, meta: str = "", chips: Sequence[Chip] = ()) -> str:
+    """A list item linking to a page, with chips and a quiet note after it."""
+    after = "".join(
+        f' <span class="{" ".join(["brain-chip", *([kind] if kind else [])])}">'
+        f"{html.escape(text)}</span>"
+        for text, kind in chips
+    )
     after += f' <span class="brain-meta">{html.escape(meta)}</span>' if meta else ""
     return f"- [{md_text(title)}](<{link}>){after}"
 
@@ -137,6 +145,33 @@ def new_projects(docs: Path, changes: list[tuple[str, str]], since: str) -> set[
         if created and created >= since:
             new.add(project)
     return new
+
+
+MANIFESTS = {"projects": "project.md", "areas": "area.md"}
+
+
+def capitalized(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
+def manifest_chips(docs: Path, folder: Path, new: set[str]) -> list[Chip]:
+    """Chips for a project or area, from its manifest: "New" for a project
+    created this week; its status unless active (an area has none), marking
+    what to pass over; and one per owner."""
+    top = folder.parent.relative_to(docs).as_posix()
+    chips: list[Chip] = []
+    if folder.relative_to(docs).as_posix() in new:
+        chips.append(("New", ""))
+    manifest = folder / MANIFESTS.get(top, "")
+    if top not in MANIFESTS or not manifest.is_file():
+        return chips
+    meta = split(manifest.read_text(encoding="utf-8", errors="replace"))[0] or {}
+    status = str(meta.get("status") or "").strip()
+    if status and status.lower() != "active":
+        chips.append((capitalized(status), "brain-status"))
+    names = (o.strip() for o in owners(meta.get("owner")))
+    chips += [(capitalized(name), "brain-owner") for name in names if name]
+    return chips
 
 
 def index_page(docs: Path, folder: Path) -> Path | None:
@@ -194,7 +229,7 @@ def contents(
     docs: Path, folder: Path, days: dict[str, str], this_year: int, new: set[str]
 ) -> list[str]:
     """A folder's subfolders, then its notes, each by title, newest first;
-    a project in `new` gets a chip."""
+    projects and areas carry chips from their manifests."""
     rel = folder.relative_to(docs).as_posix()
     rel = "" if rel == "." else rel + "/"
     lines: list[str] = []
@@ -218,14 +253,14 @@ def contents(
         and f.name not in ("index.md", "README.md", "summary.md")
     ]
 
-    def row(title: str, link: str, day: str, chip: str = "") -> str:
-        return item(title, link, day_label(day, this_year, weekday=False) if day else "", chip)
+    def row(title: str, link: str, day: str, chips: Sequence[Chip] = ()) -> str:
+        return item(title, link, day_label(day, this_year, weekday=False) if day else "", chips)
 
     if subdirs:
         lines += ["## Folders", ""]
         for day, sub, target in sorted(subdirs, key=lambda s: (s[0], s[1].name), reverse=True):
-            chip = "New" if sub.relative_to(docs).as_posix() in new else ""
-            lines.append(row(dir_title(sub.name), target.relative_to(folder).as_posix(), day, chip))
+            link = target.relative_to(folder).as_posix()
+            lines.append(row(dir_title(sub.name), link, day, manifest_chips(docs, sub, new)))
         lines.append("")
     if notes:
         lines += ["## Notes", ""]
@@ -280,7 +315,7 @@ def active_projects(
             dir_title(project.split("/")[1]),
             target.relative_to(docs).as_posix(),
             f"{len(notes)} note{plural} changed · {when}",
-            "New" if project in new else "",
+            manifest_chips(docs, docs / project, new),
         )
         summary = docs / project / "summary.md"
         if summary.is_file():

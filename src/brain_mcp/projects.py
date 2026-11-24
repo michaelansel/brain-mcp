@@ -83,7 +83,7 @@ def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
                 "status": item_status,
                 "path": f"{PROJECTS_DIR}/{entry.name}",
                 "repo_count": len(repos) if isinstance(repos, list) else 0,
-                "owner": _owner_list(meta.get("owner")),
+                "owner": frontmatter.owners(meta.get("owner")),
             }
             if about:
                 item["about"] = _about(entry / "project.md")
@@ -189,16 +189,6 @@ def register(mcp: FastMCP, config: BrainConfig, attention: Attention) -> None:
             msg = commit_message("project_create", f"{PROJECTS_DIR}/{name}")
             sha = await commit_paths(root, commit_targets, msg)
         return {"path": f"{PROJECTS_DIR}/{name}", "commit": sha, "message": msg.splitlines()[0]}
-
-
-def _owner_list(raw: Any) -> list[str]:
-    """A manifest's `owner` as a list. Frontmatter is hand-edited, so a bare
-    string is accepted; a missing key is no owner rather than an assumed one."""
-    if isinstance(raw, str):
-        return [raw]
-    if isinstance(raw, list):
-        return [str(item) for item in raw]
-    return []
 
 
 async def _summary_fields(root: Path, folder: str, config: BrainConfig) -> dict[str, Any]:
