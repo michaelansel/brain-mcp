@@ -13,6 +13,8 @@ the same way, by title, and both count as changes.
 from __future__ import annotations
 
 import datetime as dt
+import functools
+import hashlib
 import html
 import re
 import subprocess
@@ -103,16 +105,16 @@ def md_text(text: str) -> str:
     return re.sub(r"([\\\[\]*_`<>])", r"\\\1", text)
 
 
-Chip = tuple[str, str]  # (text, extra CSS class)
+Chip = tuple[str, str, str]  # (text, extra CSS class, inline style)
 
 
 def item(title: str, link: str, meta: str = "", chips: Sequence[Chip] = ()) -> str:
     """A list item linking to a page, with chips and a quiet note after it."""
-    after = "".join(
-        f' <span class="{" ".join(["brain-chip", *([kind] if kind else [])])}">'
-        f"{html.escape(text)}</span>"
-        for text, kind in chips
-    )
+    after = ""
+    for text, kind, style in chips:
+        cls = " ".join(["brain-chip", *([kind] if kind else [])])
+        attr = f' style="{html.escape(style)}"' if style else ""
+        after += f' <span class="{cls}"{attr}>{html.escape(text)}</span>'
     after += f' <span class="brain-meta">{html.escape(meta)}</span>' if meta else ""
     return f"- [{md_text(title)}](<{link}>){after}"
 
@@ -148,29 +150,71 @@ def new_projects(docs: Path, changes: list[tuple[str, str]], since: str) -> set[
 
 
 MANIFESTS = {"projects": "project.md", "areas": "area.md"}
+# Owner chip border hues: red, orange, yellow, green, teal, blue, purple,
+# pink — far enough apart to tell at a glance.
+HUES = (0, 30, 55, 130, 175, 215, 275, 325)
+
+
+def manifest(docs: Path, folder: Path) -> dict:
+    """A project's or area's manifest frontmatter, or {} for anything else."""
+    top = folder.parent.relative_to(docs).as_posix()
+    path = folder / MANIFESTS.get(top, "")
+    if top not in MANIFESTS or not path.is_file():
+        return {}
+    return split(path.read_text(encoding="utf-8", errors="replace"))[0] or {}
+
+
+def owner_names(meta: dict) -> list[str]:
+    return [name for name in (o.strip() for o in owners(meta.get("owner"))) if name]
 
 
 def capitalized(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+def hue_slot(name: str) -> int:
+    return int(hashlib.sha256(name.encode()).hexdigest(), 16) % len(HUES)
+
+
+@functools.cache
+def owner_hues(docs: Path) -> dict[str, int]:
+    """A hue per owner across the brain. Each name hashes to a slot in HUES,
+    so it keeps its colour from build to build. Two names on one slot would
+    look alike, so the later name alphabetically takes the next free slot."""
+    names = sorted(
+        {
+            name.lower()
+            for top in MANIFESTS
+            for folder in sorted((docs / top).glob("*/"))
+            for name in owner_names(manifest(docs, folder))
+        }
+    )
+    hues, free = {}, set(range(len(HUES)))
+    for name in names:
+        slot = hue_slot(name)
+        if free:  # past len(HUES) owners, colours repeat
+            while slot not in free:
+                slot = (slot + 1) % len(HUES)
+            free.discard(slot)
+        hues[name] = HUES[slot]
+    return hues
+
+
 def manifest_chips(docs: Path, folder: Path, new: set[str]) -> list[Chip]:
     """Chips for a project or area, from its manifest: "New" for a project
     created this week; its status unless active (an area has none), marking
-    what to pass over; and one per owner."""
-    top = folder.parent.relative_to(docs).as_posix()
+    what to pass over; and one per owner, bordered in that owner's hue."""
     chips: list[Chip] = []
     if folder.relative_to(docs).as_posix() in new:
-        chips.append(("New", ""))
-    manifest = folder / MANIFESTS.get(top, "")
-    if top not in MANIFESTS or not manifest.is_file():
-        return chips
-    meta = split(manifest.read_text(encoding="utf-8", errors="replace"))[0] or {}
+        chips.append(("New", "", ""))
+    meta = manifest(docs, folder)
     status = str(meta.get("status") or "").strip()
     if status and status.lower() != "active":
-        chips.append((capitalized(status), "brain-status"))
-    names = (o.strip() for o in owners(meta.get("owner")))
-    chips += [(capitalized(name), "brain-owner") for name in names if name]
+        chips.append((capitalized(status), "brain-status", ""))
+    for name in owner_names(meta):
+        hue = owner_hues(docs).get(name.lower())
+        style = f"--brain-owner-hue: {hue}" if hue is not None else ""
+        chips.append((capitalized(name), "brain-owner", style))
     return chips
 
 

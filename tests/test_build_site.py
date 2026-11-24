@@ -4,8 +4,10 @@ MkDocs itself is stubbed — a fake `uvx` on PATH that copies the export it was
 handed into the output directory — so these run offline and assert on exactly
 what the script fed the builder."""
 
+import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -389,9 +391,16 @@ def test_projects_and_areas_name_their_owners(brain, build):
         text = (current / page).read_text()
         return {line.split("]")[0]: line for line in text.splitlines() if line.startswith("- [")}
 
-    def chip(who):
-        return f'<span class="brain-chip brain-owner">{who}</span>'
+    def hue(who):
+        found = re.search(rf'--brain-owner-hue: (\d+)">{who}<', listing)
+        return found.group(1) if found else None
 
+    def chip(who):
+        style = f"--brain-owner-hue: {hue(who)}"
+        return f'<span class="brain-chip brain-owner" style="{style}">{who}</span>'
+
+    listing = (current / "projects" / "index.md").read_text()
+    assert hue("Octocat") and hue("Hubot") and hue("Octocat") != hue("Hubot")
     projects = rows("projects/index.md")
     assert chip("Octocat") in projects["- [Solo"]
     assert chip("Octocat") in projects["- [Shared"] and chip("Hubot") in projects["- [Shared"]
@@ -400,6 +409,26 @@ def test_projects_and_areas_name_their_owners(brain, build):
     assert "brain-owner" not in rows("inbox/index.md")["- [Loose"]
     active = (current / "index.md").read_text().split("## Recently changed", 1)[0]
     assert chip("Hubot") in active
+
+
+def site_pages():
+    spec = importlib.util.spec_from_file_location("site_pages", SCRIPT.parent / "site_pages.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_owners_whose_names_share_a_hue_are_moved_apart(tmp_path):
+    pages = site_pages()
+    pages.HUES = (10, 20, 30)
+    pages.hue_slot = lambda name: 0  # every name hashes to the first hue
+    for top, manifest, name, owner in (
+        ("projects", "project.md", "one", "[octocat, hubot]"),
+        ("areas", "area.md", "two", "[Mona]"),
+    ):
+        (tmp_path / top / name).mkdir(parents=True)
+        (tmp_path / top / name / manifest).write_text(f"---\nowner: {owner}\n---\n")
+    assert pages.owner_hues(tmp_path) == {"hubot": 10, "mona": 20, "octocat": 30}
 
 
 PAGE = (

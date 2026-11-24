@@ -50,11 +50,21 @@
   box-shadow: inset 0 0 0 1px var(--md-default-fg-color--lighter);
 }
 
-/* Who a project or area belongs to: quieter still, set apart from the
-   status chip by its tint. */
+/* Who a project or area belongs to: a border in that owner's hue, which
+   site_pages.py sets per chip as --brain-owner-hue. */
 .brain-chip.brain-owner {
-  background: var(--md-default-fg-color--lightest);
+  background: transparent;
   color: var(--md-default-fg-color--light);
+  box-shadow: inset 0 0 0 1.5px hsl(var(--brain-owner-hue, 0) 65% 45%);
+}
+[data-md-color-scheme="slate"] .brain-chip.brain-owner {
+  box-shadow: inset 0 0 0 1.5px hsl(var(--brain-owner-hue, 0) 70% 65%);
+}
+
+/* A shelved (or otherwise not active) project's row, faded a little so the
+   active ones stand out while scrolling. Still meant to be read. */
+.md-typeset li:has(> .brain-status) {
+  opacity: 0.7;
 }
 
 /* The first lines of a project's summary on the landing page. */
